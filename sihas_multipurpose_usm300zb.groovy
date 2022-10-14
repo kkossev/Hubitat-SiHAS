@@ -1,6 +1,8 @@
 /*
  *  Copyright 2021 SmartThings
  *
+ *  Ported for Hubitat Elevation platform by kkossev 2022/10/14 9:41 PM ver. 2.0.1
+ *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not
  *  use this file except in compliance with the License. You may obtain a copy
  *  of the License at:
@@ -13,8 +15,8 @@
  *  License for the specific language governing permissions and limitations
  *  under the License.
  */
-import physicalgraph.zigbee.clusters.iaszone.ZoneStatus
-import physicalgraph.zigbee.zcl.DataType
+import hubitat.zigbee.clusters.iaszone.ZoneStatus
+import hubitat.zigbee.zcl.DataType
 
 metadata {
     definition (name: "SiHAS Multipurpose Sensor", namespace: "shinasys", author: "SHINA SYSTEM") {
@@ -28,21 +30,25 @@ metadata {
         capability "Health Check"
         capability "Sensor"
         
-        fingerprint inClusters: "0000,0001,0003,0020,0400,0402,0405,0406,0500", outClusters: "0003,0004,0019", manufacturer: "ShinaSystem", model: "USM-300Z", deviceJoinName: "SiHAS MultiPurpose Sensor", mnmn: "SmartThings", vid: "generic-motion-6"        
+        fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0400,0003,0406,0402,0001,0405,0500", outClusters:"0004,0003,0019", model:"USM-300Z", manufacturer:"ShinaSystem", deviceJoinName: "SiHAS MultiPurpose Sensor"
     }
     preferences {
         section {
-            input "tempOffset"    , "number", title: "Temperature offset", description: "Select how many degrees to adjust the temperature.", range: "-100..100", displayDuringSetup: false
-            input "humidityOffset", "number", title: "Humidity offset"   , description: "Enter a percentage to adjust the humidity.", range: "*..*", displayDuringSetup: false
+            input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: true)
+            input (name: "txtEnable", type: "bool", title: "Description text logging", description: "<i>Display sensor states in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
+            input "tempOffset"    , "decimal", title: "Temperature offset", description: "<i>Select how many degrees to adjust the temperature.</i>", range: "-100.0..100.0", displayDuringSetup: false, defaultValue: 0.0
+            input "humidityOffset", "number", title: "Humidity offset"   , description: "<i>Enter a percentage to adjust the humidity.</i>", range: "*..*", displayDuringSetup: false, defaultValue: 0
         }
     }
 }
 
 private getILLUMINANCE_MEASUREMENT_CLUSTER() { 0x0400 }
+private getRELATIVE_HUMIDITY_CLUSTER() { 0x0405 }
 private getOCCUPANCY_SENSING_CLUSTER() { 0x0406 }
+private getATTRIBUTE_IAS_ZONE_STATUS() { 0x0000 }
 private getPOWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE() { 0x0020 }
 private getTEMPERATURE_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE() { 0x0000 }
-private getRALATIVE_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE() { 0x0000 }
+private getRELATIVE_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE() { 0x0000 }
 private getILLUMINANCE_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE() { 0x0000 }
 private getOCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE() { 0x0000 }
 
@@ -56,7 +62,7 @@ private List<Map> collectAttributes(Map descMap) {
 }
 
 def parse(String description) {
-    log.debug "Parsing message from device: $description"
+    if (settings?.logEnable) {log.debug "${device.displayName} Parsing message from device: $description"}
 
     Map map = zigbee.getEvent(description)
     if (!map) {
@@ -73,6 +79,7 @@ def parse(String description) {
             }
         } else if (description?.startsWith('illuminance:')) { //parse illuminance
             map = parseCustomMessage(description)
+            if (settings?.logEnable) {log.debug "${device.displayName} illuminance custom message: ${map}"}
         }
     } else if (map.name == "temperature") {
         if (tempOffset) {
@@ -80,6 +87,7 @@ def parse(String description) {
         }
         map.descriptionText = temperatureScale == 'C' ? "${device.displayName} temperature was ${map.value}°C" : "${device.displayName} temperature was ${map.value}°F"
         map.translatable = true
+        if (settings?.txtEnable) {log.info "${map.descriptionText}"}
     } else if (map.name == "humidity") {
         if (humidityOffset) {
             map.value = map.value + (int) humidityOffset
@@ -87,15 +95,23 @@ def parse(String description) {
         map.descriptionText = "${device.displayName} humidity was ${map.value}%"
         map.unit = "%"
         map.translatable = true
+        if (settings?.txtEnable) {log.info "${map.descriptionText}"}
+    } else if (map.name == "battery") {   // [name:battery, value:87.0]
+        map.descriptionText = "${device.displayName} battery was ${map.value}%"
+        map.unit = "%"
+        map.translatable = true    
+        if (settings?.txtEnable) {log.info "${map.descriptionText}"}
+    } else {
+        if (settings?.logEnable) {log.warn "${device.displayName} unprocessed event from device: ${map}"}
     }
 
     def result = map ? createEvent(map) : [:]
 
     if (description?.startsWith('enroll request')) {
         List cmds = zigbee.enrollResponse()
-        result = cmds?.collect { new physicalgraph.device.HubAction(it) }
+        result = cmds?.collect { new hubitat.device.HubAction(it) }
     }
-    log.debug "result: $result"
+    if (settings?.logEnable) {log.debug "${device.displayName} result: $result"}
     return result
 }
 
@@ -108,6 +124,7 @@ private def parseCustomMessage(String description) {
 }
 
 private Map getBatteryResult(rawValue) {
+    log.trace "getBatteryResult rawValue=${rawValue}"
     def linkText = getLinkText(device)
     def result = [:]
     def volts = rawValue / 10
@@ -127,12 +144,14 @@ private Map getBatteryResult(rawValue) {
             roundedPct = 1
         result.value = Math.min(100, roundedPct)
         result.descriptionText = "${device.displayName} battery was ${result.value}%"        
+        if (settings?.txtEnable) {log.info "${result.descriptionText}"}
     }
     return result
 }
 
 private Map getMotionResult(value) {
     String descriptionText = value == 'active' ? "${device.displayName} detected motion" : "${device.displayName} motion has stopped"
+    if (settings?.txtEnable) {log.info "${descriptionText}"}
     return [
         name           : 'motion',
         value          : value,
@@ -154,7 +173,7 @@ def refresh() {
 
     refreshCmds += zigbee.readAttribute(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE)
 
-    refreshCmds += zigbee.readAttribute(zigbee.RELATIVE_HUMIDITY_CLUSTER, RALATIVE_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE)
+    refreshCmds += zigbee.readAttribute(RELATIVE_HUMIDITY_CLUSTER, RELATIVE_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE)
     refreshCmds += zigbee.readAttribute(zigbee.TEMPERATURE_MEASUREMENT_CLUSTER, TEMPERATURE_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE)
     refreshCmds += zigbee.readAttribute(ILLUMINANCE_MEASUREMENT_CLUSTER, ILLUMINANCE_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE)
     refreshCmds += zigbee.readAttribute(OCCUPANCY_SENSING_CLUSTER, OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE)
@@ -163,6 +182,7 @@ def refresh() {
 }
 
 def configure() {
+    if (settings?.logEnable) {log.debug "${device.displayName} configure()"}
     def configCmds = []
 
     // Device-Watch allows 2 check-in misses from device + ping (plus 1 min lag time)
@@ -180,10 +200,10 @@ def configure() {
     configCmds += zigbee.configureReporting(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, DataType.UINT8, 30, 21600, 0x01/*100mv*1*/)
 
     configCmds += zigbee.configureReporting(zigbee.TEMPERATURE_MEASUREMENT_CLUSTER, TEMPERATURE_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE, DataType.INT16, 15, 300, 10/*10/100=0.1도*/)
-    configCmds += zigbee.configureReporting(zigbee.RELATIVE_HUMIDITY_CLUSTER, RALATIVE_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE, DataType.UINT16, 15, 300, 40/*10/100=0.4%*/)
+    configCmds += zigbee.configureReporting(RELATIVE_HUMIDITY_CLUSTER, RELATIVE_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE, DataType.UINT16, 15, 300, 40/*10/100=0.4%*/)
     configCmds += zigbee.configureReporting(ILLUMINANCE_MEASUREMENT_CLUSTER, ILLUMINANCE_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE, DataType.UINT16, 15, 3600, 1/*1 lux*/)
     configCmds += zigbee.configureReporting(OCCUPANCY_SENSING_CLUSTER, OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE, DataType.BITMAP8, 1, 600, 1)
-    configCmds += zigbee.configureReporting(zigbee.IAS_ZONE_CLUSTER, zigbee.ATTRIBUTE_IAS_ZONE_STATUS, DataType.BITMAP16, 0, 0xffff, null) // set : none reporting flag, device sends out notification to the bound devices.
+    configCmds += zigbee.configureReporting(zigbee.IAS_ZONE_CLUSTER, ATTRIBUTE_IAS_ZONE_STATUS, DataType.BITMAP16, 0, 0xffff, null) // set : none reporting flag, device sends out notification to the bound devices.
     
     return configCmds + refresh()
 }
