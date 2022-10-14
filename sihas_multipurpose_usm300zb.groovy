@@ -1,7 +1,7 @@
 /*
  *  Copyright 2021 SmartThings
  *
- *  Ported for Hubitat Elevation platform by kkossev 2022/10/14 9:41 PM ver. 2.0.1
+ *  Ported for Hubitat Elevation platform by kkossev 2022/10/14 10:32 PM ver. 2.0.1
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not
  *  use this file except in compliance with the License. You may obtain a copy
@@ -27,8 +27,9 @@ metadata {
         capability "Illuminance Measurement"
         capability "Relative Humidity Measurement"
         capability "Refresh"
-        capability "Health Check"
         capability "Sensor"
+        
+        attribute "batteryVoltage", "string"
         
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0400,0003,0406,0402,0001,0405,0500", outClusters:"0004,0003,0019", model:"USM-300Z", manufacturer:"ShinaSystem", deviceJoinName: "SiHAS MultiPurpose Sensor"
     }
@@ -63,32 +64,51 @@ private List<Map> collectAttributes(Map descMap) {
 
 def parse(String description) {
     if (settings?.logEnable) {log.debug "${device.displayName} Parsing message from device: $description"}
-
     Map map = zigbee.getEvent(description)
+    if (settings?.logEnable) {log.trace "${device.displayName} Map =  $map"}
     if (!map) {
         if (description?.startsWith('read attr')) {
             Map descMap = zigbee.parseDescriptionAsMap(description)
+            if (settings?.logEnable) {log.trace "${device.displayName} descMap =  $descMap"}
             if (descMap?.clusterInt == zigbee.POWER_CONFIGURATION_CLUSTER && descMap.commandInt != 0x07 && descMap.value) {
                 List<Map> descMaps = collectAttributes(descMap)
                 def battMap = descMaps.find { it.attrInt == POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE }
                 if (battMap) {
                     map = getBatteryResult(Integer.parseInt(battMap.value, 16))
                 }
-            } else if (descMap?.clusterInt == OCCUPANCY_SENSING_CLUSTER && descMap.attrInt == OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE && descMap?.value) {
+            } 
+            else if (descMap?.clusterInt == OCCUPANCY_SENSING_CLUSTER && descMap.attrInt == OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE && descMap?.value) {
                 map = getMotionResult(descMap.value == "01" ? "active" : "inactive")
             }
-        } else if (description?.startsWith('illuminance:')) { //parse illuminance
+            else if (descMap?.clusterInt == ILLUMINANCE_MEASUREMENT_CLUSTER && descMap.attrInt == ILLUMINANCE_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE && descMap?.value) {
+                map.name = "illuminance"
+                map.value = Integer.parseInt(descMap?.value,16)
+                map.descriptionText = "${device.displayName} illuminance was ${map.value} lx"
+                map.unit = "lx"
+                map.translatable = true
+                if (settings?.txtEnable) {log.info "${map.descriptionText}"}                
+            }
+            else {
+                if (settings?.logEnable) {log.warn "${device.displayName} unprocessed read attr device: clusterInt=${descMap?.clusterInt}  attrInt=${descMap.attrInt} value=${descMap?.value}"}
+            }
+        } // if read attr
+        else if (description?.startsWith('illuminance:')) { //parse illuminance
             map = parseCustomMessage(description)
             if (settings?.logEnable) {log.debug "${device.displayName} illuminance custom message: ${map}"}
         }
-    } else if (map.name == "temperature") {
+        else {
+            if (settings?.logEnable) {log.debug "${device.displayName} NOT PARSED message from device: $description"}
+        }
+    } 
+    else if (map.name == "temperature") {
         if (tempOffset) {
             map.value = new BigDecimal((map.value as float) + (tempOffset as float)).setScale(1, BigDecimal.ROUND_HALF_UP)
         }
         map.descriptionText = temperatureScale == 'C' ? "${device.displayName} temperature was ${map.value}°C" : "${device.displayName} temperature was ${map.value}°F"
         map.translatable = true
         if (settings?.txtEnable) {log.info "${map.descriptionText}"}
-    } else if (map.name == "humidity") {
+    } 
+    else if (map.name == "humidity") {
         if (humidityOffset) {
             map.value = map.value + (int) humidityOffset
         }
@@ -96,13 +116,21 @@ def parse(String description) {
         map.unit = "%"
         map.translatable = true
         if (settings?.txtEnable) {log.info "${map.descriptionText}"}
-    } else if (map.name == "battery") {   // [name:battery, value:87.0]
+    } 
+    else if (map.name == "battery") {   // [name:battery, value:87.0]
         map.descriptionText = "${device.displayName} battery was ${map.value}%"
         map.unit = "%"
         map.translatable = true    
         if (settings?.txtEnable) {log.info "${map.descriptionText}"}
-    } else {
-        if (settings?.logEnable) {log.warn "${device.displayName} unprocessed event from device: ${map}"}
+    } 
+    else if (map.name == "batteryVoltage") {
+        map.descriptionText = "${device.displayName} battery voltage was ${map.value}V"
+        map.unit = "V"
+        map.translatable = true    
+        if (settings?.txtEnable) {log.info "${map.descriptionText}"}
+    } 
+    else {
+        if (settings?.logEnable) {log.warn "${device.displayName} unprocessed Map event from device: ${map}"}
     }
 
     def result = map ? createEvent(map) : [:]
@@ -158,14 +186,6 @@ private Map getMotionResult(value) {
         descriptionText: descriptionText,
         translatable   : true
     ]
-}
-
-
-/**
- * PING is used by Device-Watch in attempt to reach the Device
- * */
-def ping() {
-    zigbee.readAttribute(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE)
 }
 
 def refresh() {
