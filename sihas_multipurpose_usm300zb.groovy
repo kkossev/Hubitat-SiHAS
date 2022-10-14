@@ -1,7 +1,7 @@
 /*
  *  Copyright 2021 SmartThings
  *
- *  Ported for Hubitat Elevation platform by kkossev 2022/10/14 11:19 PM ver. 2.0.1
+ *  Ported for Hubitat Elevation platform by kkossev 2022/10/14 11:43 PM ver. 2.0.1
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not
  *  use this file except in compliance with the License. You may obtain a copy
@@ -35,7 +35,7 @@ metadata {
     }
     preferences {
         section {
-            input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: true)
+            input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
             input (name: "txtEnable", type: "bool", title: "Description text logging", description: "<i>Display sensor states in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
             input "tempOffset"    , "decimal", title: "Temperature offset", description: "<i>Select how many degrees to adjust the temperature.</i>", range: "-100.0..100.0", displayDuringSetup: false, defaultValue: 0.0
             input "humidityOffset", "number", title: "Humidity offset"   , description: "<i>Enter a percentage to adjust the humidity.</i>", range: "*..*", displayDuringSetup: false, defaultValue: 0
@@ -113,12 +113,13 @@ def parse(String description) {
     } 
     else if (map.name == "temperature") {
         Map descMap = zigbee.parseDescriptionAsMap(description)
-        float rawValue = ((Integer.parseInt(descMap?.value,16) / 100.0) as float).round(1)
+        float rawValue = ((Integer.parseInt(descMap?.value,16) / 100.0) as float)
         map.value = rawValue
         if (tempOffset) {
             //map.value = new BigDecimal((map.value as float) + (tempOffset as float)).setScale(3/*1*/, BigDecimal.ROUND_HALF_UP)
             map.value = rawValue + (tempOffset as float)
         }
+        map.value = map.value.round(1)
         map.descriptionText = temperatureScale == 'C' ? "${device.displayName} temperature was ${map.value}°C" : "${device.displayName} temperature was ${map.value}°F"
         map.translatable = true
         if (settings?.txtEnable) {log.info "${map.descriptionText}"}
@@ -167,7 +168,7 @@ private def parseCustomMessage(String description) {
 }
 
 private Map getBatteryResult(rawValue) {
-    log.trace "getBatteryResult rawValue=${rawValue}"
+    if (settings?.logEnable) log.trace "getBatteryResult rawValue=${rawValue}"
     def linkText = getLinkText(device)
     def result = [:]
     def volts = rawValue / 10
