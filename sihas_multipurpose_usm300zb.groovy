@@ -1,7 +1,7 @@
 /*
  *  Copyright 2021 SmartThings
  *
- *  Ported for Hubitat Elevation platform by kkossev 2022/10/14 10:32 PM ver. 2.0.1
+ *  Ported for Hubitat Elevation platform by kkossev 2022/10/14 11:19 PM ver. 2.0.1
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not
  *  use this file except in compliance with the License. You may obtain a copy
@@ -88,6 +88,17 @@ def parse(String description) {
                 map.translatable = true
                 if (settings?.txtEnable) {log.info "${map.descriptionText}"}                
             }
+            else if (descMap?.clusterInt == RELATIVE_HUMIDITY_CLUSTER && descMap.attrInt == RELATIVE_HUMIDITY_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE && descMap?.value) {
+                map.name = "humidity"
+                map.value = Integer.parseInt(descMap?.value,16) / 100 as int
+                if (humidityOffset) {
+                    map.value = map.value + (int) humidityOffset
+                }                
+                map.descriptionText = "${device.displayName} humidity was ${map.value} %RH"
+                map.unit = "%RH"
+                map.translatable = true
+                if (settings?.txtEnable) {log.info "${map.descriptionText}"}                
+            }
             else {
                 if (settings?.logEnable) {log.warn "${device.displayName} unprocessed read attr device: clusterInt=${descMap?.clusterInt}  attrInt=${descMap.attrInt} value=${descMap?.value}"}
             }
@@ -101,8 +112,12 @@ def parse(String description) {
         }
     } 
     else if (map.name == "temperature") {
+        Map descMap = zigbee.parseDescriptionAsMap(description)
+        float rawValue = ((Integer.parseInt(descMap?.value,16) / 100.0) as float).round(1)
+        map.value = rawValue
         if (tempOffset) {
-            map.value = new BigDecimal((map.value as float) + (tempOffset as float)).setScale(1, BigDecimal.ROUND_HALF_UP)
+            //map.value = new BigDecimal((map.value as float) + (tempOffset as float)).setScale(3/*1*/, BigDecimal.ROUND_HALF_UP)
+            map.value = rawValue + (tempOffset as float)
         }
         map.descriptionText = temperatureScale == 'C' ? "${device.displayName} temperature was ${map.value}°C" : "${device.displayName} temperature was ${map.value}°F"
         map.translatable = true
