@@ -1,0 +1,17 @@
+{
+  "packageName": "SiHAS Multipurpose Sensor",
+  "author": "Krassimir Kossev",
+  "version": "2.0.1",
+  "minimumHEVersion": "2.2.7",
+  "dateReleased": "2022-10-15",
+  "releaseNotes": "2.0.1 2022-10-15 - first working version",  
+  "drivers": [
+    {
+      "id": "a7c603d7-0565-4b7b-ab4d-270f090e377c",
+      "name": "SiHAS Multipurpose Sensor",
+      "namespace": "shinasys",
+      "location": "https://raw.githubusercontent.com/kkossev/Hubitat-SiHAS/main/sihas_multipurpose_usm300zb.groovy",
+      "required": true
+    }
+  ]
+}
