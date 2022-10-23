@@ -1,7 +1,7 @@
 /*
  *  Copyright 2021 SmartThings
  *
- *  Ported for Hubitat Elevation platform by kkossev 2022/10/23 1:53 PM ver. 2.0.0
+ *  Ported for Hubitat Elevation platform by kkossev 2022/10/23 2:52 PM ver. 2.0.0
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not
  *  use this file except in compliance with the License. You may obtain a copy
@@ -19,16 +19,19 @@ import hubitat.zigbee.clusters.iaszone.ZoneStatus
 import hubitat.zigbee.zcl.DataType
 
 metadata {
-	definition (name: "SiHAS Dual Motion Sensor", namespace: "shinasys", author: "SHINA SYSTEM", mnmn: "SmartThingsCommunity", vid: "76b8c536-c445-3bda-a3f7-457e4e378aeb", ocfDeviceType: "x.com.st.d.sensor.motion") {
+	definition (name: "SiHAS Dual Motion Sensor", namespace: "shinasys", author: "SHINA SYSTEM") {
 		capability "Motion Sensor"
 		capability "Configuration"
 		capability "Battery"
 		capability "Refresh"
         capability "Sensor"		
-		//capability "afterguide46998.dualMotionInSensor"        // TODO
-		//capability "afterguide46998.dualMotionOutSensor"        // TODO
-		//capability "afterguide46998.dualMotionAndSensor"        // TODO
-		
+        
+        attribute "batteryVoltage", "string"
+        attribute "motionInterval", "number"
+        attribute "motionIn",  "enum", ["active", "inactive"]
+        attribute "motionOut", "enum", ["active", "inactive"]
+        attribute "motionAnd", "enum", ["active", "inactive"]
+        
 		// dual motion sensor : in(right),out(left) motion sensor -> motion(AND) = in & out, motion(OR) = in | out 
 		fingerprint inClusters: "0000,0001,0003,0020,0406,0500", outClusters: "0003,0004,0019", manufacturer: "ShinaSystem", model: "DMS-300Z", deviceJoinName: "SiHAS Dual Motion Sensor"
 	}
@@ -36,7 +39,7 @@ metadata {
 		section {
             input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
             input (name: "txtEnable", type: "bool", title: "Description text logging", description: "<i>Display sensor states in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
-			input "motionInterval", "number", title: "Motion Interval", description: "What is the re-sensing time (seconds) after the motion sensor is detected.", range: "1..100", defaultValue: 5, required: true, displayDuringSetup: true
+			input "motionInterval", "number", title: "Motion Interval", description: "<i>What is the re-sensing time (seconds) after the motion sensor is detected.</i>", range: "1..100", defaultValue: 5, required: true, displayDuringSetup: true
 		}
 	}
 }
@@ -71,7 +74,7 @@ def parse(String description) {
 				if (battMap) {
 					map = getBatteryResult(Integer.parseInt(battMap.value, 16))
 				}
-			} else if (descMap?.clusterInt == zigbee.IAS_ZONE_CLUSTER && descMap.attrInt == zigbee.ATTRIBUTE_IAS_ZONE_STATUS && descMap.commandInt != 0x07) {  // out : motion sensor
+			} else if (descMap?.clusterInt == zigbee.IAS_ZONE_CLUSTER && descMap.attrInt == ATTRIBUTE_IAS_ZONE_STATUS && descMap.commandInt != 0x07) {  // out : motion sensor
 				def zs = new ZoneStatus(zigbee.convertToInt(descMap.value, 10))
 				map = translateZoneStatus(zs)
 			} else if (descMap?.clusterInt == OCCUPANCY_SENSING_CLUSTER && descMap.attrInt == OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE && descMap?.value) { // in : motion sensor
@@ -82,7 +85,7 @@ def parse(String description) {
 				map = (inMotion == "active" || outMotion == "active") ? getMotionOrResult('active') : getMotionOrResult('inactive')
 			} else if (descMap?.clusterInt == OCCUPANCY_SENSING_CLUSTER && descMap.attrInt == OCCUPIED_TO_UNOCCUPIED_DELAY_ATTRIBUTE && descMap?.value) {
 				def interval = zigbee.convertToInt(descMap.value, 10)
-				log.debug "interval = [$interval]"
+				if (settings?.logEnable) log.debug "${device.displayName} interval = [$interval]"
 				map = [name:'motionInterval',value: interval]
 			}
 		}
@@ -94,7 +97,7 @@ def parse(String description) {
 		List cmds = zigbee.enrollResponse()
 		result = cmds?.collect { new hubitat.device.HubAction(it) }
 	}
-	log.debug "result: $result"
+	if (settings?.logEnable) log.debug "${device.displayName} result: $result"
 	return result
 }
 // out : motion sensor
@@ -112,7 +115,7 @@ private Map translateZoneStatus(ZoneStatus zs) {
 }
 
 private Map getBatteryResult(rawValue) {
-    if (settings?.logEnable) log.trace "getBatteryResult rawValue=${rawValue}"
+    if (settings?.logEnable) log.trace "${device.displayName} getBatteryResult rawValue=${rawValue}"
 	def linkText = getLinkText(device)
 	def result = [:]
 	def volts = rawValue / 10
@@ -135,7 +138,7 @@ private Map getBatteryResult(rawValue) {
 
 private sendDualMotionResult(name, value) {
 	String descriptionText = value == 'active' ? "${device.displayName} ${name} detected motion" : "${device.displayName}  ${name} has stopped"
-	log.debug "$name = $value: $descriptionText"
+	if (settings?.txtEnable) log.info "${device.displayName} $name = $value: $descriptionText"
 	
 	sendEvent(name: name, value: value, descriptionText: descriptionText,translatable   : true)    
 }
@@ -153,18 +156,18 @@ private Map getMotionOrResult(value) {
 
 
 def updated() {
-	log.debug "device updated $motionInterval"
+	if (settings?.txtEnable) log.info "${device.displayName} device updated $motionInterval"
 	
 	//set reportingInterval = 0 to trigger update
 	if (isMotionIntervalChange()) {
 		sendEvent(name: "motionInterval", value: getMotionReportInterval(), descriptionText: "Motion interval set to ${getMotionReportInterval()} seconds")
-		sendHubCommand(zigbee.writeAttribute(OCCUPANCY_SENSING_CLUSTER, OCCUPIED_TO_UNOCCUPIED_DELAY_ATTRIBUTE, DataType.UINT16, getMotionReportInterval()), 1)
+		sendHubCommand(zigbee.writeAttribute(OCCUPANCY_SENSING_CLUSTER, OCCUPIED_TO_UNOCCUPIED_DELAY_ATTRIBUTE, DataType.UINT16, getMotionReportInterval() as int), 1)
 	}
 }
 
 //has interval been updated
 def isMotionIntervalChange() {
-	log.debug "isMotionIntervalChange ${getMotionReportInterval()} <- ${device.latestValue("motionInterval")}"
+	if (settings?.logEnable) log.debug "${device.displayName} isMotionIntervalChange ${getMotionReportInterval()} <- ${device.latestValue("motionInterval")}"
 	return (getMotionReportInterval() != device.latestValue("motionInterval"))
 }
 
@@ -179,7 +182,7 @@ def refresh() {
 	refreshCmds += zigbee.readAttribute(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE)
 	refreshCmds += zigbee.readAttribute(OCCUPANCY_SENSING_CLUSTER, OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE)
 	refreshCmds += zigbee.readAttribute(OCCUPANCY_SENSING_CLUSTER, OCCUPIED_TO_UNOCCUPIED_DELAY_ATTRIBUTE)
-	refreshCmds += zigbee.readAttribute(zigbee.IAS_ZONE_CLUSTER, zigbee.ATTRIBUTE_IAS_ZONE_STATUS)        
+	refreshCmds += zigbee.readAttribute(zigbee.IAS_ZONE_CLUSTER, ATTRIBUTE_IAS_ZONE_STATUS)        
 	refreshCmds += zigbee.enrollResponse()
 	return refreshCmds
 }
@@ -187,10 +190,8 @@ def refresh() {
 def configure() {
 	def configCmds = []
 
-	// Device-Watch allows 2 check-in misses from device + ping (plus 1 min lag time)
-	sendEvent(name: "checkInterval", value: 2 * 60 * 60 + 1 * 60, displayed: false, data: [protocol: "zigbee", hubHardwareId: device.hub.hardwareID])	
 	configCmds += zigbee.configureReporting(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, DataType.UINT8, 30, 21600, 0x01/*100mv*1*/)
 	configCmds += zigbee.configureReporting(OCCUPANCY_SENSING_CLUSTER, OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE, DataType.BITMAP8, 1, 600, 1)
-	configCmds += zigbee.configureReporting(zigbee.IAS_ZONE_CLUSTER, zigbee.ATTRIBUTE_IAS_ZONE_STATUS, DataType.BITMAP16, 0, 0xffff, null) // set : none reporting flag, device sends out notification to the bound devices.
+	configCmds += zigbee.configureReporting(zigbee.IAS_ZONE_CLUSTER, ATTRIBUTE_IAS_ZONE_STATUS, DataType.BITMAP16, 0, 0xffff, null) // set : none reporting flag, device sends out notification to the bound devices.
 	return configCmds + refresh()
 }
