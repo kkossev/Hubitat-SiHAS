@@ -1,6 +1,8 @@
 /*
  *  Copyright 2022 SmartThings
  *
+ *  Ported for Hubitat Elevation platform by kkossev 2022/10/23 5:01 PM ver. 2.0.0
+ *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not
  *  use this file except in compliance with the License. You may obtain a copy
  *  of the License at:
@@ -13,32 +15,44 @@
  *  License for the specific language governing permissions and limitations
  *  under the License.
  */
-import physicalgraph.zigbee.zcl.DataType
+import hubitat.zigbee.zcl.DataType
+import hubitat.device.HubMultiAction
 
 metadata {
-	definition (name: "SiHAS People Counter", namespace: "shinasys", author: "SHINA SYSTEM", mnmn: "SmartThingsCommunity", vid: "c798ff70-928b-36b4-aebc-1fefc7b49030") {
+	definition (name: "SiHAS People Counter", namespace: "shinasys", author: "SHINA SYSTEM") {
 		capability "Motion Sensor"
 		capability "Configuration"
 		capability "Battery"
 		capability "Refresh"
-		capability "Health Check"
 		capability "Sensor"
-		capability "afterguide46998.peopleCounterV2"
-		capability "afterguide46998.inOutDirectionV2"
-		capability "afterguide46998.freeze"
 		capability "Momentary"
-		
+        
+        attribute "peopleCounter", "number"
+		attribute "freeze",        "enum", ["off", ""]
+        attribute "inOutDir",      "enum", ["in", "out", "ready"]
+        attribute "batteryVoltage", "string"
+        attribute "transationInterval", "number"
+        attribute "ledStatus",     "enum", ["true", "false"]
+        attribute "inFastStatus",  "enum", ["true", "false"]
+        attribute "outFastStatus", "enum", ["true", "false"]
+        attribute "rfStatus",      "enum", ["true", "false"]
+        attribute "rfPairing",     "enum", ["true", "false"]
+        attribute "distanceInit",  "enum", ["true", "false"]
+        
+        
 		//////////////////////////////////////////////////////////////
         // People Counter version description
         //////////////////////////////////////////////////////////////
 		// application version > 10 : People Counter V2(TOF) Version (People Counter for Setting : 81~99)
         // application version < 10 : People Counter Version
 		//////////////////////////////////////////////////////////////
-        fingerprint inClusters: "0000,0001,0003,000C,0020,0500", outClusters: "0003,0004,0019", manufacturer: "ShinaSystem", model: "CSM-300Z", deviceJoinName: "SiHAS People Counter", ocfDeviceType: "x.com.st.d.sensor.motion"
+        fingerprint inClusters: "0000,0001,0003,000C,0020,0500", outClusters: "0003,0004,0019", manufacturer: "ShinaSystem", model: "CSM-300Z", deviceJoinName: "SiHAS People Counter"
 	}
 	preferences {
 		section {
         	/* korean language
+            input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
+            input (name: "txtEnable", type: "bool", title: "Description text logging", description: "<i>Display sensor states in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
 			input (
 					title: "설정 설명", 
 					description: "아래 설정은 V2(TOF) 버전에 해당하는 설정입니다.", 
@@ -95,60 +109,17 @@ metadata {
 					required: false)
 			*/
             // english version
-            input (
-					title: "Setting Description", 
-					description: "The settings below correspond to the V2 (TOF) version.", 
-					displayDuringSetup: false, 
-					type: "paragraph", 
-					element: "paragraph")        
-			input ("ledStatus", "boolean", 
-					title: "LED status indication", 
-					description: "Sets whether the operational status is indicated by LED.", 
-					displayDuringSetup: false, 
-					defaultValue: "true", 
-					required: false)
-			input ("transationInterval", "enum",
-					title: "Set transaction interval", 
-					description: "Sets the transaction interval. If you frequently enter consecutively, you can set the transaction interval to be short and long in the opposite case.", 
-					displayDuringSetup: false, 
-					options: [0: "No delay",
-							  1: "0.2 seconds",
-							  2: "0.4 seconds(default)",
-							  3: "0.6 seconds",
-							  4: "0.8 seconds",
-							  5: "1.0 seconds"],
-					defaultValue: "2",
-					required: false)
-			input ("inFastStatus", "boolean", 
-					title: "Set up quick action when entering", 
-					description: "When the counter is zero and enters, you can decide whether to set counter 1 quickly before one transaction ends.", 
-					displayDuringSetup: false, 
-					defaultValue: "true", 
-					required: false)
-			input ("outFastStatus", "boolean", 
-					title: "Set up quick action when out", 
-					description: "When the counter is 1 and leaves, you can decide whether to set the counter to 0 quickly before one transaction ends.", 
-					displayDuringSetup: false, 
-					defaultValue: "true", 
-					required: false)
-			input ("rfStatus", "boolean", 
-					title: "RF Communication Operation", 
-					description: "Set RF communication operation for interworking with SiHAS switch.", 
-					displayDuringSetup: false, 
-					defaultValue: "false", 
-					required: false)
-			input ("rfPairing", "boolean", 
-					title: "RF Pairing", 
-					description: "Start RF pairing with the SiHAS switch. (RF communication operation must be enabled first.)", 
-					displayDuringSetup: false, 
-					defaultValue: "false", 
-					required: false)
-			input ("distanceInit", "boolean", 
-					title: "Distance readjustment", 
-					description: "If the installation location changes, the distance must be readjusted. Start distance re-adjustment setting and operate for 5 seconds.", 
-					displayDuringSetup: false, 
-					defaultValue: "false", 
-					required: false)
+            input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
+            input (name: "txtEnable", type: "bool", title: "Description text logging", description: "<i>Display sensor states in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
+            input (title: "Setting Description", description: "The settings below correspond to the V2 (TOF) version.", type: "paragraph", element: "paragraph")        
+			input ("ledStatus", "bool", title: "LED status indication", description: "Sets whether the operational status is indicated by LED.", defaultValue: "true", required: false)
+			input ("transationInterval", "enum", title: "Set transaction interval", description: "Sets the transaction interval. If you frequently enter consecutively, you can set the transaction interval to be short and long in the opposite case.", 
+					displayDuringSetup: false, options: [0: "No delay", 1: "0.2 seconds", 2: "0.4 seconds(default)", 3: "0.6 seconds", 4: "0.8 seconds", 5: "1.0 seconds"], defaultValue: "2", required: false)
+			input ("inFastStatus", "bool", title: "Set up quick action when entering", description: "When the counter is zero and enters, you can decide whether to set counter 1 quickly before one transaction ends.", defaultValue: "true", required: false)
+			input ("outFastStatus", "bool", title: "Set up quick action when out", description: "When the counter is 1 and leaves, you can decide whether to set the counter to 0 quickly before one transaction ends.", defaultValue: "true", required: false)
+			input ("rfStatus", "bool", title: "RF Communication Operation", description: "Set RF communication operation for interworking with SiHAS switch.", defaultValue: "false", required: false)
+			input ("rfPairing", "bool", title: "RF Pairing", description: "Start RF pairing with the SiHAS switch. (RF communication operation must be enabled first.)", defaultValue: "false", required: false)
+			input ("distanceInit", "bool", title: "Distance readjustment", description: "If the installation location changes, the distance must be readjusted. Start distance re-adjustment setting and operate for 5 seconds.", defaultValue: "false", required: false)
 		}
 	}
 }
@@ -169,9 +140,10 @@ private List<Map> collectAttributes(Map descMap) {
 }
 
 def parse(String description) {
-	log.debug "Parsing message from device: $description"
+    if (settings?.logEnable) {log.debug "${device.displayName} Parsing message from device: $description"}
 
 	Map map = zigbee.getEvent(description)
+	if (settings?.logEnable) {log.trace "${device.displayName} Map =  $map"}
 	if (!map) {
 		if (description?.startsWith('read attr')) {
 			Map descMap = zigbee.parseDescriptionAsMap(description)
@@ -194,6 +166,7 @@ def parse(String description) {
 }
 
 private Map getBatteryResult(rawValue) {
+    if (settings?.logEnable) log.trace "${device.displayName} getBatteryResult rawValue=${rawValue}"
 	def linkText = getLinkText(device)
 	def result = [:]
 	def volts = rawValue / 10
@@ -267,7 +240,7 @@ private Map getAnalogInputResult(value) {
 def setPeopleCounter(peoplecounter) {
 	int pc =  Float.floatToIntBits(peoplecounter);
 	log.debug "SetPeopleCounter = $peoplecounter"
-	zigbee.writeAttribute(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, DataType.FLOAT4, pc)
+	return zigbee.writeAttribute(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, DataType.FLOAT4, pc)
 }
 
 def setFreeze(freezeSts) {
@@ -300,8 +273,15 @@ def ping() {
 }
 
 def updated() {
+    ArrayList<String> cmds = []
 	def application = getDataValue("application")
-	int version = zigbee.convertHexToInt(application)
+	int version = 99
+    if (application != null) {
+        version = zigbee.convertHexToInt(application)
+    }
+    else {
+        log.warn "${device.displayName} application version not found! Assuming new SiHAS People Counter ..."
+    }
 	
 	if (version > 10) { // version > 10 and People Count > 80 and People Count < 100 : TOF Setting Value
 		
@@ -309,72 +289,83 @@ def updated() {
 		if (ledStatusRet != device.latestValue("ledStatus")) {
 			sendEvent(name: "ledStatus", value: ledStatusRet, descriptionText: "ledStatus set to ${ledStatusRet}")
 			if ( ledStatusRet == "true") {
-				sendHubCommand(setPeopleCounter(86), 1)
+				cmds += setPeopleCounter(86)
 			} else {
-				sendHubCommand(setPeopleCounter(87), 1)
+				cmds += setPeopleCounter(87)
 			}
 		}
 		def transationIntervalRet = (transationInterval != null) ? transationInterval : "2"		
 		if (transationIntervalRet != device.latestValue("transationInterval")) {
 			sendEvent(name: "transationInterval", value: transationIntervalRet, descriptionText: "transationInterval set to ${transationIntervalRet}")
 			if ( transationIntervalRet == "0") {
-				sendHubCommand(setPeopleCounter(90), 1)
+				cmds += setPeopleCounter(90)
 			} else if ( transationIntervalRet == "1") {
-				sendHubCommand(setPeopleCounter(91), 1)
+				cmds += setPeopleCounter(91)
 			} else if ( transationIntervalRet == "2") {
-				sendHubCommand(setPeopleCounter(92), 1)
+				cmds += setPeopleCounter(92)
 			} else if ( transationIntervalRet == "3") {
-				sendHubCommand(setPeopleCounter(93), 1)
+				cmds += setPeopleCounter(93)
 			} else if ( transationIntervalRet == "4") {
-				sendHubCommand(setPeopleCounter(94), 1)
+				cmds += setPeopleCounter(94)
 			} else if ( transationIntervalRet == "5") {
-				sendHubCommand(setPeopleCounter(95), 1)
+				cmds += setPeopleCounter(95)
 			}			
 		}
 		def inFastStatusRet = (inFastStatus != null) ? inFastStatus : "true"
 		if (inFastStatusRet != device.latestValue("inFastStatus")) {
 			sendEvent(name: "inFastStatus", value: inFastStatusRet, descriptionText: "inFastStatus set to ${inFastStatusRet}")
 			if ( inFastStatusRet == "true") {
-				sendHubCommand(setPeopleCounter(96), 1)
+				cmds += setPeopleCounter(96)
 			} else {
-				sendHubCommand(setPeopleCounter(97), 1)
+				cmds += setPeopleCounter(97)
 			}
 		}
 		def outFastStatusRet = (outFastStatus != null) ? outFastStatus : "true"
 		if (outFastStatusRet != device.latestValue("outFastStatus")) {
 			sendEvent(name: "outFastStatus", value: outFastStatusRet, descriptionText: "outFastStatus set to ${outFastStatusRet}")
 			if ( outFastStatusRet == "true") {
-				sendHubCommand(setPeopleCounter(98), 1)
+				cmds += setPeopleCounter(98)
 			} else {
-				sendHubCommand(setPeopleCounter(99), 1)
+				cmds += setPeopleCounter(99)
 			}
 		}
 		def rfStatusRet = (rfStatus != null) ? rfStatus : "false"
 		if (rfStatusRet != device.latestValue("rfStatus")) {
 			sendEvent(name: "rfStatus", value: rfStatusRet, descriptionText: "rfStatus set to ${rfStatusRet}")
 			if ( rfStatusRet == "true") {
-				sendHubCommand(setPeopleCounter(88), 1)
+				cmds += setPeopleCounter(88)
 			} else {
-				sendHubCommand(setPeopleCounter(89), 1)
+				cmds += setPeopleCounter(89)
 			}
 		}
 		def rfPairingRet = (rfPairing != null) ? rfPairing : "false"
 		if (rfPairingRet != device.latestValue("rfPairing")) {
 			sendEvent(name: "rfPairing", value: rfPairingRet, descriptionText: "rfPairing set to ${rfPairingRet}")
 			if ( rfPairingRet == "true") {
-				sendHubCommand(setPeopleCounter(81), 1)
+				cmds += setPeopleCounter(81)
 			}
 		}
 		def distanceInitRet = (distanceInit != null) ? distanceInit : "false"
 		if (distanceInitRet != device.latestValue("distanceInit")) {
 			sendEvent(name: "distanceInit", value: distanceInitRet, descriptionText: "distanceInit set to ${distanceInitRet}")
 			if ( distanceInitRet == "true") {
-				sendHubCommand(setPeopleCounter(83), 1)
+				cmds += setPeopleCounter(83)
 			}
 		}
-	}
+        sendZigbeeCommands(cmds)
+	} //if (version > 10)
     return null
 }
+
+void sendZigbeeCommands(ArrayList<String> cmds) {
+    if (logEnable) {log.trace "${device.displayName} sendZigbeeCommands(cmds=$cmds)"}
+    hubitat.device.HubMultiAction allActions = new hubitat.device.HubMultiAction()
+    cmds.each {
+            allActions.add(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE))
+    }
+    sendHubCommand(allActions)
+}
+
 
 def refresh() {
 	def refreshCmds = []
@@ -385,15 +376,13 @@ def refresh() {
 
 def configure() {
 	def configCmds = []
-	// Device-Watch allows 2 check-in misses from device + ping (plus 1 min lag time)
-	sendEvent(name: "checkInterval", value: 2 * 60 * 60 + 1 * 60, displayed: false, data: [protocol: "zigbee", hubHardwareId: device.hub.hardwareID])
 	configCmds += zigbee.configureReporting(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, DataType.UINT8, 30, 21600, 0x01/*100mv*1*/)
 	configCmds += zigbee.configureReporting(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, DataType.FLOAT4, 1, 600, 1)
 	return configCmds + refresh()
 }
 
 def installed() {
-	log.info("installed")
+	if (settings?.txtEnable) log.info "${device.displayName} installed"
 	sendEvent(name: "ledStatus", value:"true")
     sendEvent(name: "transationInterval", value:"2")
     sendEvent(name: "inFastStatus", value:"true")
