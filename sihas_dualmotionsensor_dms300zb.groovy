@@ -1,5 +1,7 @@
 /*
- *  Copyright 2022 SmartThings
+ *  Copyright 2021 SmartThings
+ *
+ *  Ported for Hubitat Elevation platform by kkossev 2022/10/23 1:53 PM ver. 2.0.0
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not
  *  use this file except in compliance with the License. You may obtain a copy
@@ -13,8 +15,8 @@
  *  License for the specific language governing permissions and limitations
  *  under the License.
  */
-import physicalgraph.zigbee.clusters.iaszone.ZoneStatus
-import physicalgraph.zigbee.zcl.DataType
+import hubitat.zigbee.clusters.iaszone.ZoneStatus
+import hubitat.zigbee.zcl.DataType
 
 metadata {
 	definition (name: "SiHAS Dual Motion Sensor", namespace: "shinasys", author: "SHINA SYSTEM", mnmn: "SmartThingsCommunity", vid: "76b8c536-c445-3bda-a3f7-457e4e378aeb", ocfDeviceType: "x.com.st.d.sensor.motion") {
@@ -22,22 +24,25 @@ metadata {
 		capability "Configuration"
 		capability "Battery"
 		capability "Refresh"
-		capability "Health Check"
-		capability "afterguide46998.dualMotionInSensor"
-		capability "afterguide46998.dualMotionOutSensor"
-		capability "afterguide46998.dualMotionAndSensor"
+        capability "Sensor"		
+		//capability "afterguide46998.dualMotionInSensor"        // TODO
+		//capability "afterguide46998.dualMotionOutSensor"        // TODO
+		//capability "afterguide46998.dualMotionAndSensor"        // TODO
 		
 		// dual motion sensor : in(right),out(left) motion sensor -> motion(AND) = in & out, motion(OR) = in | out 
 		fingerprint inClusters: "0000,0001,0003,0020,0406,0500", outClusters: "0003,0004,0019", manufacturer: "ShinaSystem", model: "DMS-300Z", deviceJoinName: "SiHAS Dual Motion Sensor"
 	}
 	preferences {
 		section {
+            input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
+            input (name: "txtEnable", type: "bool", title: "Description text logging", description: "<i>Display sensor states in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
 			input "motionInterval", "number", title: "Motion Interval", description: "What is the re-sensing time (seconds) after the motion sensor is detected.", range: "1..100", defaultValue: 5, required: true, displayDuringSetup: true
 		}
 	}
 }
 
 private getOCCUPANCY_SENSING_CLUSTER() { 0x0406 }
+private getATTRIBUTE_IAS_ZONE_STATUS() { 0x0000 }
 private getPOWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE() { 0x0020 }
 private getOCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE() { 0x0000 }
 private getOCCUPIED_TO_UNOCCUPIED_DELAY_ATTRIBUTE() { 0x0010 }
@@ -52,9 +57,9 @@ private List<Map> collectAttributes(Map descMap) {
 }
 
 def parse(String description) {
-	log.debug "Parsing message from device: $description"
-
+    if (settings?.logEnable) {log.debug "${device.displayName} Parsing message from device: $description"}
 	Map map = zigbee.getEvent(description)
+    if (settings?.logEnable) {log.trace "${device.displayName} Map =  $map"}
 	if (!map) {
 		if (description?.startsWith('zone status')) {
 			map = parseIasMessage(description)
@@ -87,7 +92,7 @@ def parse(String description) {
 
 	if (description?.startsWith('enroll request')) {
 		List cmds = zigbee.enrollResponse()
-		result = cmds?.collect { new physicalgraph.device.HubAction(it) }
+		result = cmds?.collect { new hubitat.device.HubAction(it) }
 	}
 	log.debug "result: $result"
 	return result
@@ -107,6 +112,7 @@ private Map translateZoneStatus(ZoneStatus zs) {
 }
 
 private Map getBatteryResult(rawValue) {
+    if (settings?.logEnable) log.trace "getBatteryResult rawValue=${rawValue}"
 	def linkText = getLinkText(device)
 	def result = [:]
 	def volts = rawValue / 10
@@ -144,12 +150,7 @@ private Map getMotionOrResult(value) {
 	]
 }
 
-/**
- * PING is used by Device-Watch in attempt to reach the Device
- * */
-def ping() {
-	zigbee.readAttribute(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE)
-}
+
 
 def updated() {
 	log.debug "device updated $motionInterval"
