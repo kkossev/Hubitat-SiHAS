@@ -1,7 +1,7 @@
 /*
  *  Copyright 2021 SmartThings
  *
- *  Ported for Hubitat Elevation platform by kkossev 2022/10/23 2:52 PM ver. 2.0.0
+ *  Ported for Hubitat Elevation platform by kkossev 2022/10/28 11:52 PM ver. 2.0.0
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not
  *  use this file except in compliance with the License. You may obtain a copy
@@ -33,7 +33,7 @@ metadata {
         attribute "motionAnd", "enum", ["active", "inactive"]
         
 		// dual motion sensor : in(right),out(left) motion sensor -> motion(AND) = in & out, motion(OR) = in | out 
-		fingerprint inClusters: "0000,0001,0003,0020,0406,0500", outClusters: "0003,0004,0019", manufacturer: "ShinaSystem", model: "DMS-300Z", deviceJoinName: "SiHAS Dual Motion Sensor"
+		fingerprint profileId:"0104", endpointId:"01", inClusters: "0000,0003,0406,0001,0500", outClusters: "0004,0003,0019", manufacturer: "ShinaSystem", model: "DMS-300Z", deviceJoinName: "SiHAS Dual Motion Sensor"
 	}
 	preferences {
 		section {
@@ -64,38 +64,77 @@ def parse(String description) {
 	Map map = zigbee.getEvent(description)
     if (settings?.logEnable) {log.trace "${device.displayName} Map =  $map"}
 	if (!map) {
+        //log.trace "no event map!"
 		if (description?.startsWith('zone status')) {
+            //log.trace "zone status"
 			map = parseIasMessage(description)
-		} else {
-			Map descMap = zigbee.parseDescriptionAsMap(description)
+		} 
+        else {
+		    Map descMap = zigbee.parseDescriptionAsMap(description)
+            if (settings?.logEnable) {log.debug "${device.displayName} descMap: $descMap"}
 			if (descMap?.clusterInt == zigbee.POWER_CONFIGURATION_CLUSTER && descMap.commandInt != 0x07 && descMap.value) {
 				List<Map> descMaps = collectAttributes(descMap)
 				def battMap = descMaps.find { it.attrInt == POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE }
 				if (battMap) {
 					map = getBatteryResult(Integer.parseInt(battMap.value, 16))
 				}
-			} else if (descMap?.clusterInt == zigbee.IAS_ZONE_CLUSTER && descMap.attrInt == ATTRIBUTE_IAS_ZONE_STATUS && descMap.commandInt != 0x07) {  // out : motion sensor
-				def zs = new ZoneStatus(zigbee.convertToInt(descMap.value, 10))
+			} 
+            else if (descMap?.clusterInt == zigbee.IAS_ZONE_CLUSTER && descMap.attrInt == ATTRIBUTE_IAS_ZONE_STATUS && descMap.commandInt != 0x07) {  // out : motion sensor
+                //log.trace "out : motion sensor"
+				def zs = new ZoneStatus(zigbee.convertHexToInt(descMap.value))
 				map = translateZoneStatus(zs)
-			} else if (descMap?.clusterInt == OCCUPANCY_SENSING_CLUSTER && descMap.attrInt == OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE && descMap?.value) { // in : motion sensor
+			} 
+            else if (descMap?.clusterInt == OCCUPANCY_SENSING_CLUSTER && descMap.attrInt == OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE && descMap?.value) { // in : motion sensor
+                //log.trace "in : motion sensor"
 				def inMotion = descMap.value == "01" ? "active" : "inactive"
 				def outMotion  = device.latestState('motionOut')?.value
 				sendDualMotionResult("motionIn", inMotion)  
 				sendDualMotionResult("motionAnd", (inMotion == "active" && outMotion == "active") ? "active":"inactive")
 				map = (inMotion == "active" || outMotion == "active") ? getMotionOrResult('active') : getMotionOrResult('inactive')
-			} else if (descMap?.clusterInt == OCCUPANCY_SENSING_CLUSTER && descMap.attrInt == OCCUPIED_TO_UNOCCUPIED_DELAY_ATTRIBUTE && descMap?.value) {
-				def interval = zigbee.convertToInt(descMap.value, 10)
+			} 
+            else if (descMap?.clusterInt == OCCUPANCY_SENSING_CLUSTER && descMap.attrInt == OCCUPIED_TO_UNOCCUPIED_DELAY_ATTRIBUTE && descMap?.value) {
+                //log.trace "motionInterval"
+				def interval = zigbee.convertHexToInt(descMap.value)
 				if (settings?.logEnable) log.debug "${device.displayName} interval = [$interval]"
 				map = [name:'motionInterval',value: interval]
 			}
-		}
+            else if (descMap?.clusterId == "0500" && descMap?.command == "04") {    //write attribute response (IAS)
+                if (settings?.logEnable) log.debug "${device.displayName} IAS enroll write attribute response is ${descMap?.data[0] == "00" ? "success" : "<b>FAILURE</b>"}"
+            } 
+            else if (descMap?.cluster == "0500" && descMap?.command in ["01", "0A"] ) {    //IAS read attribute response
+                if (settings?.logEnable) log.debug "${device.displayName} IAS read attribute ${descMap?.attrId} response is ${descMap?.value}"
+                if (descMap?.attrId == "0000") {
+                    if (settings?.logEnable) log.debug "${device.displayName} Zone State repot ignored value= ${Integer.parseInt(descMap?.value, 16)}"
+                }
+                else if (descMap?.attrId == "0002") {
+                    if (settings?.logEnable) log.debug "${device.displayName} Zone status repoted: descMap=${descMap} value= ${Integer.parseInt(descMap?.value, 16)}"
+                    //handleMotion(Integer.parseInt(descMap?.value, 16))
+                } else if (descMap?.attrId == "000B") {
+                    if (settings?.logEnable) log.debug "${device.displayName} IAS Zone ID: ${descMap.value}" 
+                }
+                else if (descMap?.attrId == "0013") {
+                    def value = Integer.parseInt(descMap?.value, 16)
+                    if (settings?.txtEnable) log.info "${device.displayName} Current Zone Sensitivity Level = ${value}"
+                }
+                else {
+                    if (settings?.logEnable) log.warn "${device.displayName} Zone status: NOT PROCESSED ${descMap}" 
+                }
+            } // if IAS read attribute response            
+            else {
+                if (settings?.logEnable) log.warn "${device.displayName} UNPROCESSED!"
+            }
+		} // if no event
 	}
 
 	def result = map ? createEvent(map) : [:]
 
 	if (description?.startsWith('enroll request')) {
-		List cmds = zigbee.enrollResponse()
-		result = cmds?.collect { new hubitat.device.HubAction(it) }
+		//List cmds = zigbee.enrollResponse()
+		//result = cmds?.collect { new hubitat.device.HubAction(it) }
+        if (settings?.logEnable) log.info "${device.displayName} Sending IAS enroll response..."
+        ArrayList<String> cmds = zigbee.enrollResponse() + zigbee.readAttribute(0x0500, 0x0000)
+        if (settings?.logEnable) log.debug "${device.displayName} enroll response: ${cmds}"
+        sendZigbeeCommands( cmds )  
 	}
 	if (settings?.logEnable) log.debug "${device.displayName} result: $result"
 	return result
@@ -161,7 +200,8 @@ def updated() {
 	//set reportingInterval = 0 to trigger update
 	if (isMotionIntervalChange()) {
 		sendEvent(name: "motionInterval", value: getMotionReportInterval(), descriptionText: "Motion interval set to ${getMotionReportInterval()} seconds")
-		sendHubCommand(zigbee.writeAttribute(OCCUPANCY_SENSING_CLUSTER, OCCUPIED_TO_UNOCCUPIED_DELAY_ATTRIBUTE, DataType.UINT16, getMotionReportInterval() as int), 1)
+        ArrayList<String> cmds = zigbee.writeAttribute(OCCUPANCY_SENSING_CLUSTER, OCCUPIED_TO_UNOCCUPIED_DELAY_ATTRIBUTE, DataType.UINT16, getMotionReportInterval() as int, [:], 250)
+		sendZigbeeCommands( cmds )
 	}
 }
 
@@ -177,21 +217,32 @@ def getMotionReportInterval() {
 }
 
 def refresh() {
-	def refreshCmds = []
+    if (logEnable) {log.debug "${device.displayName} refresh()..."}
+	ArrayList<String> refreshCmds = []
 
-	refreshCmds += zigbee.readAttribute(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE)
-	refreshCmds += zigbee.readAttribute(OCCUPANCY_SENSING_CLUSTER, OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE)
-	refreshCmds += zigbee.readAttribute(OCCUPANCY_SENSING_CLUSTER, OCCUPIED_TO_UNOCCUPIED_DELAY_ATTRIBUTE)
-	refreshCmds += zigbee.readAttribute(zigbee.IAS_ZONE_CLUSTER, ATTRIBUTE_IAS_ZONE_STATUS)        
-	refreshCmds += zigbee.enrollResponse()
-	return refreshCmds
+	refreshCmds += zigbee.readAttribute(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, [:], 250)
+	refreshCmds += zigbee.readAttribute(OCCUPANCY_SENSING_CLUSTER, OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE, [:], 250)
+	refreshCmds += zigbee.readAttribute(OCCUPANCY_SENSING_CLUSTER, OCCUPIED_TO_UNOCCUPIED_DELAY_ATTRIBUTE, [:], 250)
+	refreshCmds += zigbee.readAttribute(zigbee.IAS_ZONE_CLUSTER, ATTRIBUTE_IAS_ZONE_STATUS, [:], 250)        
+	refreshCmds += zigbee.enrollResponse(delay=250)
+	sendZigbeeCommands( refreshCmds )
 }
 
 def configure() {
 	def configCmds = []
+    configCmds += zigbee.enrollResponse() + zigbee.readAttribute(0x0500, 0x0000)
+	configCmds += zigbee.configureReporting(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, DataType.UINT8, 30, 21600, 0x01/*100mv*1*/, [:], 250)
+	configCmds += zigbee.configureReporting(OCCUPANCY_SENSING_CLUSTER, OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE, DataType.BITMAP8, 1, 600, 1, [:], 250)
+	configCmds += zigbee.configureReporting(zigbee.IAS_ZONE_CLUSTER, ATTRIBUTE_IAS_ZONE_STATUS, DataType.BITMAP16, 0, 0xffff, null, [:], 250) // set : none reporting flag, device sends out notification to the bound devices.
+    sendZigbeeCommands( configCmds )
+	refresh()
+}
 
-	configCmds += zigbee.configureReporting(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, DataType.UINT8, 30, 21600, 0x01/*100mv*1*/)
-	configCmds += zigbee.configureReporting(OCCUPANCY_SENSING_CLUSTER, OCCUPANCY_SENSING_OCCUPANCY_ATTRIBUTE, DataType.BITMAP8, 1, 600, 1)
-	configCmds += zigbee.configureReporting(zigbee.IAS_ZONE_CLUSTER, ATTRIBUTE_IAS_ZONE_STATUS, DataType.BITMAP16, 0, 0xffff, null) // set : none reporting flag, device sends out notification to the bound devices.
-	return configCmds + refresh()
+void sendZigbeeCommands(ArrayList<String> cmds) {
+    if (logEnable) {log.trace "${device.displayName} sendZigbeeCommands(cmds=$cmds)"}
+    hubitat.device.HubMultiAction allActions = new hubitat.device.HubMultiAction()
+    cmds.each {
+            allActions.add(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE))
+    }
+    sendHubCommand(allActions)
 }
