@@ -1,7 +1,7 @@
 /*
  *  Copyright 2022 SmartThings
  *
- *  Ported for Hubitat Elevation platform by kkossev 2022/10/23 5:01 PM ver. 2.0.0
+ *  Ported for Hubitat Elevation platform by kkossev 2022/10/29 8:54 AM ver. 2.0.0
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not
  *  use this file except in compliance with the License. You may obtain a copy
@@ -46,7 +46,7 @@ metadata {
 		// application version > 10 : People Counter V2(TOF) Version (People Counter for Setting : 81~99)
         // application version < 10 : People Counter Version
 		//////////////////////////////////////////////////////////////
-        fingerprint inClusters: "0000,0001,0003,000C,0020,0500", outClusters: "0003,0004,0019", manufacturer: "ShinaSystem", model: "CSM-300Z", deviceJoinName: "SiHAS People Counter"
+        fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0003,0001,000C", outClusters:"0000,0004,0003,0019,0006", model:"CSM-300Z", manufacturer:"ShinaSystem", deviceJoinName: "SiHAS People Counter"
 	}
 	preferences {
 		section {
@@ -109,7 +109,7 @@ metadata {
 					required: false)
 			*/
             // english version
-            input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
+            input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: true)
             input (name: "txtEnable", type: "bool", title: "Description text logging", description: "<i>Display sensor states in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
             input (title: "Setting Description", description: "The settings below correspond to the V2 (TOF) version.", type: "paragraph", element: "paragraph")        
 			input ("ledStatus", "bool", title: "LED status indication", description: "Sets whether the operational status is indicated by LED.", defaultValue: "true", required: false)
@@ -240,7 +240,7 @@ private Map getAnalogInputResult(value) {
 def setPeopleCounter(peoplecounter) {
 	int pc =  Float.floatToIntBits(peoplecounter);
 	log.debug "SetPeopleCounter = $peoplecounter"
-	return zigbee.writeAttribute(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, DataType.FLOAT4, pc)
+	return zigbee.writeAttribute(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, DataType.FLOAT4, pc, [:], 250)
 }
 
 def setFreeze(freezeSts) {
@@ -368,17 +368,20 @@ void sendZigbeeCommands(ArrayList<String> cmds) {
 
 
 def refresh() {
-	def refreshCmds = []
-	refreshCmds += zigbee.readAttribute(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE)
-	refreshCmds += zigbee.readAttribute(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE)	
-	return refreshCmds
+    ArrayList<String> refreshCmds = []
+	refreshCmds += zigbee.readAttribute(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, [:], 250)
+	refreshCmds += zigbee.readAttribute(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, [:], 250)	
+	//return refreshCmds
+    sendZigbeeCommands( refreshCmds )
 }
 
 def configure() {
-	def configCmds = []
-	configCmds += zigbee.configureReporting(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, DataType.UINT8, 30, 21600, 0x01/*100mv*1*/)
-	configCmds += zigbee.configureReporting(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, DataType.FLOAT4, 1, 600, 1)
-	return configCmds + refresh()
+    ArrayList<String> configCmds = []
+	configCmds += zigbee.configureReporting(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, DataType.UINT8, 30, 21600, 0x01/*100mv*1*/, [:], 250)
+	configCmds += zigbee.configureReporting(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, DataType.FLOAT4, 1, 600, 1, [:], 250)
+	//return configCmds + refresh()
+    sendZigbeeCommands( configCmds )
+	refresh()
 }
 
 def installed() {
