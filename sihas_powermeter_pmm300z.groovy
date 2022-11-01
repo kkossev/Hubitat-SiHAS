@@ -1,7 +1,7 @@
 /**
  *	Copyright 2022 SmartThings
  *
- *  Imported for Hubitat Elevation platform by kkossev 2022/11/01 1:26 PM ver. 2.0.1 
+ *  Imported for Hubitat Elevation platform by kkossev 2022/11/01 1:38 PM ver. 2.0.1 
  *
  *	Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *	in compliance with the License. You may obtain a copy of the License at:
@@ -35,7 +35,7 @@ metadata {
         
 	    preferences {
 		    section {
-                input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: true)
+                input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
                 input (name: "txtEnable", type: "bool", title: "Description text logging", description: "<i>Display sensor states in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
 		    }
 	    }
@@ -153,7 +153,7 @@ def refresh() {
 
 def configure() {
 	def configCmds = []
-	// this device will send instantaneous demand and current summation delivered every 1 minute
+	// this device will send instantaneous demand and current summation delivered every 10 minutes
 
 	if (settings?.txtEnable) log.debug "${device.displayName} Configuring Reporting"
 	configCmds = zigbee.onOffConfig() +
