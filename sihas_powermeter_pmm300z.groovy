@@ -1,7 +1,7 @@
 /**
  *	Copyright 2022 SmartThings
  *
- *  Imported for Hubitat Elevation platform by kkossev 2022/11/01 12:40 PM ver. 2.0.1 
+ *  Imported for Hubitat Elevation platform by kkossev 2022/11/01 1:26 PM ver. 2.0.1 
  *
  *	Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *	in compliance with the License. You may obtain a copy of the License at:
@@ -24,8 +24,6 @@ metadata {
 		capability "Configuration"
 		capability "Voltage Measurement"
 		capability "Current Meter"
-		//capability "frequencyMeasurement"
-		//capability "powerfactorMeasurement"
 		capability "Temperature Measurement"
 		capability "Switch"
 
@@ -34,7 +32,13 @@ metadata {
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0003,0B04,0702,0402", outClusters:"0004,0019", model:"PMM-300Z1", manufacturer:"ShinaSystem", deviceJoinName: "SiHAS Power Meter PMM-300Z1"        // SIHAS Power Meter 01 0104 0000 01 05 0000 0004 0003 0B04 0702 02 0004 0019
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0003,0B04,0702,0402", outClusters:"0004,0019", model:"PMM-300Z2", manufacturer:"ShinaSystem", deviceJoinName: "SiHAS Energy Monitor PMM-300Z2"     // Single Phase, SIHAS Power Meter 01 0104 0000 01 06 0000 0004 0003 0B04 0702 0402 02 0004 0019
         fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0003,0B04,0702,0402", outClusters:"0004,0019", model:"PMM-300Z3", manufacturer:"ShinaSystem", deviceJoinName: "SiHAS Energy Monitor PMM-300Z3"     // Three Phase,  SIHAS Power Meter 01 0104 0000 01 06 0000 0004 0003 0B04 0702 0402 02 0004 0019
-      
+        
+	    preferences {
+		    section {
+                input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: true)
+                input (name: "txtEnable", type: "bool", title: "Description text logging", description: "<i>Display sensor states in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
+		    }
+	    }
 	}
 }
 
@@ -56,22 +60,25 @@ def convertHexToInt24Bit(value) {
 }
 
 def parse(String description) {
-	log.debug "description is $description"
+	if (settings?.logEnable) log.debug "${device.displayName} description is $description"
 	def event = zigbee.getEvent(description)
 	def descMap = zigbee.parseDescriptionAsMap(description)
 
 	if (event) {
-		log.info "event enter:$event"
+		if (settings?.logEnable) log.info "${device.displayName} event enter:$event"
 		if (event.name == "switch") {
 			return sendEvent(event)
 		} else if (event.name == "temperature") {
 			return sendEvent(event)
 		}
+        else {
+            if (settings?.logEnable) log.warn "${device.displayName} unprocessed event: $event"
+        }
 	}
 
 	if (descMap) {
 		List result = []
-		log.debug "Desc Map: $descMap"
+		if (settings?.logEnable) log.debug "${device.displayName} Desc Map: $descMap"
 
 		List attrData = [[clusterInt: descMap.clusterInt, attrInt: descMap.attrInt, value: descMap.value]]
 		descMap.additionalAttrs.each {
@@ -81,64 +88,59 @@ def parse(String description) {
 			def map = [:]
 			if (it.value != null) {
 				if (it.clusterInt == zigbee.METERING_CLUSTER && it.attrInt == ATTRIBUTE_HISTORICAL_CONSUMPTION) {
-					log.debug "meter"
 					map.name = "power"
 					map.value = convertHexToInt24Bit(it.value)/powerDivisor
 					map.unit = "W"
 				} else if (it.clusterInt == zigbee.METERING_CLUSTER && it.attrInt == ATTRIBUTE_READING_INFO_SET) {
-					log.debug "energy"
 					map.name = "energy"
 					map.value = zigbee.convertHexToInt(it.value)/energyDivisor
 					map.unit = "kWh"						
 				} else if (it.clusterInt == zigbee.ELECTRICAL_MEASUREMENT_CLUSTER && it.attrInt == ATTRIBUTE_FREQUENCY) {
-					log.debug "frequency"
 					map.name = "frequency"
 					map.value = zigbee.convertHexToInt(it.value)/frequencyDivisor
 					map.unit = "Hz"
 				} else if (it.clusterInt == zigbee.ELECTRICAL_MEASUREMENT_CLUSTER && it.attrInt == ATTRIBUTE_VOLTAGE) {
-					log.debug "voltage"
 					map.name = "voltage"
 					map.value = zigbee.convertHexToInt(it.value)/voltageDivisor
 					map.unit = "V"
 				} else if (it.clusterInt == zigbee.ELECTRICAL_MEASUREMENT_CLUSTER && it.attrInt == ATTRIBUTE_CURRENT) {
-					log.debug "current"
-					map.name = "current"
+					map.name = "amperage"
 					map.value = zigbee.convertHexToInt(it.value)/currentDivisor
 					map.unit = "A"
 				} else if (it.clusterInt == zigbee.ELECTRICAL_MEASUREMENT_CLUSTER && it.attrInt == ATTRIBUTE_POWERFACTOR) {
-					log.debug "power factor $it.value"
 					map.name = "powerFactor"
 					map.value = (byte) zigbee.convertHexToInt(it.value)/powerFactorDivisor
 					map.unit = "%"
 				} else if (it.clusterInt == zigbee.TEMPERATURE_MEASUREMENT_CLUSTER && it.attrInt == TEMPERATURE_MEASUREMENT_MEASURED_VALUE_ATTRIBUTE) {
-					log.debug "temperature"
 					map.name = "temperature"
 					map.unit = getTemperatureScale()
 					map.value = zigbee.parseHATemperatureValue("temperature: " + (zigbee.convertHexToInt(it.value)), "temperature: ", tempScale)
-					log.debug "${device.displayName}: Reported temperature is ${map.value}°$map.unit"
+					if (settings?.logEnable) log.debug "${device.displayName}: Reported temperature is ${map.value}°$map.unit"
 				}
 			}
 				
 			if (map) {
 				result << createEvent(map)
+                if (settings?.txtEnable) log.info "${device.displayName} ${map.name} is ${map.value} ${map.unit}"
 			}
-			log.debug "Parse returned $map result is: ${result}"
-		} // for each attribute
-        //log.debug "result=${result}" 
+			if (settings?.logEnable) log.debug "${device.displayName} Parse returned $map result is: ${result}"
+		}
 		return result
-	} // if (descMap)
+	}
 }
 
 def off() {
+    if (settings?.logEnable) log.debug "${device.displayName} sending off command"
 	zigbee.off()
 }
 
 def on() {
+    if (settings?.logEnable) log.debug "${device.displayName} sending on command"
 	zigbee.on()
 }
 
 def refresh() {
-	log.debug "refresh "
+	if (settings?.txtEnable) log.debug "${device.displayName} refresh "
 	zigbee.onOffRefresh() +
 	zigbee.electricMeasurementPowerRefresh() +
 	zigbee.readAttribute(zigbee.METERING_CLUSTER, ATTRIBUTE_READING_INFO_SET) + 
@@ -153,7 +155,7 @@ def configure() {
 	def configCmds = []
 	// this device will send instantaneous demand and current summation delivered every 1 minute
 
-	log.debug "Configuring Reporting"
+	if (settings?.txtEnable) log.debug "${device.displayName} Configuring Reporting"
 	configCmds = zigbee.onOffConfig() +
 		zigbee.configureReporting(zigbee.METERING_CLUSTER, ATTRIBUTE_HISTORICAL_CONSUMPTION, DataType.INT24, 5, 600, 1) +
 		zigbee.configureReporting(zigbee.METERING_CLUSTER, ATTRIBUTE_READING_INFO_SET, DataType.UINT48, 5, 600, 1) +
