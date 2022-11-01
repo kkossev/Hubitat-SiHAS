@@ -1,0 +1,16 @@
+{
+  "packageName": "SiHAS People Counter",
+  "author": "Krassimir Kossev",
+  "version": "2.0.0",
+  "minimumHEVersion": "2.2.7",
+  "dateReleased": "2022-10-29",
+  "drivers": [
+    {
+      "id": "d5c3b85e-d198-451c-b4cb-0d5aea6f231b",
+      "name": "SiHAS People Counter",
+      "namespace": "shinasys",
+      "location": "https://raw.githubusercontent.com/kkossev/Hubitat-SiHAS/main/sihas_peoplecounter_csm300zb.groovy",
+      "required": true
+    }
+  ]
+}
