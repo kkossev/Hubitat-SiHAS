@@ -1,0 +1,16 @@
+{
+  "packageName": "SiHAS Zigbee Power Meter",
+  "author": "Krassimir Kossev",
+  "version": "2.0.1",
+  "minimumHEVersion": "2.2.7",
+  "dateReleased": "2022-11-01",
+  "drivers": [
+    {
+      "id": "fed274c7-4f62-4f0b-91de-73b3fdb5af9b",
+      "name": "SiHAS Zigbee Power Meter",
+      "namespace": "shinasys",
+      "location": "https://raw.githubusercontent.com/kkossev/Hubitat-SiHAS/main/sihas_powermeter_pmm300z.groovy",
+      "required": true
+    }
+  ]
+}
