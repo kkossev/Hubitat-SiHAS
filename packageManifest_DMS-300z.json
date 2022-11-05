@@ -1,0 +1,16 @@
+{
+  "packageName": "SiHAS Dual Motion Sensor",
+  "author": "Krassimir Kossev",
+  "version": "2.0.0",
+  "minimumHEVersion": "2.2.7",
+  "dateReleased": "2022-10-28",
+  "drivers": [
+    {
+      "id": "46d6d06d-00cc-4bf5-9931-b2655e66bfa1",
+      "name": "SiHAS Dual Motion Sensor",
+      "namespace": "shinasys",
+      "location": "https://raw.githubusercontent.com/kkossev/Hubitat-SiHAS/main/sihas_dualmotionsensor_dms300zb.groovy",
+      "required": true
+    }
+  ]
+}
