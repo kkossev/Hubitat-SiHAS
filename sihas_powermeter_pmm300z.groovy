@@ -1,7 +1,7 @@
 /**
  *	Copyright 2022 SmartThings
  *
- *  Imported for Hubitat Elevation platform by kkossev 2022/11/01 1:38 PM ver. 2.0.1
+ *  Imported for Hubitat Elevation platform by kkossev 2022/11/01 1:38 PM ver. 2.0.1 
  *
  *	Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *	in compliance with the License. You may obtain a copy of the License at:
