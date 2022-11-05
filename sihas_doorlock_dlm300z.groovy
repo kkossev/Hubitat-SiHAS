@@ -1,6 +1,7 @@
 /**
- *
  *	Copyright 2018 SmartThings
+ *
+ *  Imported for Hubitat Elevation platform by kkossev 2022/11/05 5:23 PM ver. 2.0.0 
  *
  *	Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *	in compliance with the License. You may obtain a copy of the License at:
@@ -13,24 +14,29 @@
  *
  */
 
-import physicalgraph.zigbee.zcl.DataType
-import physicalgraph.zigbee.clusters.iaszone.ZoneStatus
+import hubitat.zigbee.zcl.DataType
+import hubitat.zigbee.clusters.iaszone.ZoneStatus
 
 metadata {
-	definition (name:"ZigBee Lock Without Codes", namespace:"smartthings", author:"SmartThings", vid:"generic-lock-2", mnmn:"SmartThings", runLocally:true, minHubCoreVersion:'000.022.00013', executeCommandsLocally:true, ocfDeviceType: "oic.d.smartlock") {
+	definition (name:"SiHAS ZigBee Lock Without Codes", namespace:"shinasys", author:"SHINA SYSTEM") {
 		capability "Actuator"
-		capability "Lock"
+		capability "Lock"        // attributes: lock - ENUM ["locked", "unlocked with timeout", "unlocked", "unknown"]; Commands: lock() unlock()
 		capability "Refresh"
 		capability "Sensor"
 		capability "Battery"
 		capability "Configuration"
-		capability "Health Check"
 		capability "Contact Sensor"
 
-		fingerprint profileId:"0104", inClusters:"0000, 0001, 0003, 0020,0101", outclusters:"0003,0004, 0019", manufacturer:"ShinaSystem", model:"DLM-300Z", deviceJoinName:"SiHAS Door Lock", vid:"8019e83a-2ddc-3720-a88c-3cf74186c3ce", mnmn:"SmartThingsCommunity" //SiHAS Door Lock
-
+        fingerprint profileId:"0104", endpointId:"01", inClusters:"0000,0004,0003,0001,0101", outClusters:"0000,0004,0003,0019,0006", model:"DLM-300Z", manufacturer:"ShinaSystem", deviceJoinName:"SiHAS Door Lock"    //SiHAS Door Lock
+        
+	    preferences {
+		    section {
+                input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: false)
+                input (name: "txtEnable", type: "bool", title: "Description text logging", description: "<i>Display sensor states in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
+		    }
+	    }
 	}
-
+    /*
 	tiles(scale:2) {
 		multiAttributeTile(name:"toggle", type:"generic", width:6, height:4) {
 			tileAttribute("device.lock", key:"PRIMARY_CONTROL"){
@@ -58,6 +64,7 @@ metadata {
 		main "toggle"
 		details(["toggle", "lock", "unlock", "battery", "refresh"])
 	}
+    */
 }
 
 private getCLUSTER_POWER() { 0x0001 }
@@ -74,12 +81,12 @@ private getIAS_ATTR_ZONE_STATUS() { 0x0002 }
 
 
 def installed() {
-	log.debug "Executing installed()"
+	if (settings?.logEnable) log.debug "${device.displayName} Executing installed()"
 	initialize()
 }
 
 def uninstalled() {
-	log.debug "Executing uninstalled()"
+	if (settings?.logEnable) log.debug "${device.displayName} Executing uninstalled()"
 	sendEvent(name:"lockRemoved", value:device.id, isStateChange:true, displayed:false)
 }
 
@@ -97,13 +104,9 @@ def updated() {
 			return response(cmds.flatten())
 		}
 	} catch (e) {
-		log.warn "ZigBee DTH - updated() threw exception:- $e"
+		if (settings?.logEnable) log.warn "${device.displayName} ZigBee DTH - updated() threw exception:- $e"
 	}
 	return null
-}
-
-def ping() {
-	refresh()
 }
 
 def refresh() {
@@ -122,9 +125,8 @@ def configure() {
 }
 
 def initialize() {
-	log.debug "Executing initialize()"
+	if (settings?.logEnable) log.debug "${device.displayName} Executing initialize()"
 	state.configured = true
-	sendEvent(name:"checkInterval", value: 2 * 60 * 60 + 2 * 60, displayed:false, data: [protocol:"zigbee", hubHardwareId:device.hub.hardwareID, offlinePingable:"1"])
 
 	def cmds = []
 	cmds += zigbee.configureReporting(CLUSTER_DOORLOCK, DOORLOCK_ATTR_LOCKSTATE,DataType.ENUM8, 0, 3600, null)
@@ -165,7 +167,7 @@ def parse(String description) {
 
 private def parseAttributeResponse(String description) {
 	Map descMap = zigbee.parseDescriptionAsMap(description)
-	log.debug "Executing parseAttributeResponse() with description map:- $descMap"
+	if (settings?.logEnable) log.debug "${device.displayName} Executing parseAttributeResponse() with description map:- $descMap"
 	def result = []
 	Map responseMap = [:]
 	def clusterInt = descMap.clusterInt
@@ -188,11 +190,11 @@ private def parseAttributeResponse(String description) {
 			responseMap.value = "unknown"
 			responseMap.descriptionText = "Unknown state"
 		} else if (value == 1) {
-			log.debug "locked"
+			log.debug "${device.displayName} locked"
 			responseMap.value = "locked"
 			responseMap.descriptionText = "Locked"
 		} else if (value == 2) {
-			log.debug "unlocked"
+			log.debug "${device.displayName} unlocked"
 			responseMap.value = "unlocked"
 			responseMap.descriptionText = "Unlocked"
 		} else {
@@ -204,7 +206,7 @@ private def parseAttributeResponse(String description) {
 				If we don't get one, then it's okay to send. If we send the event with more info first, the event
 				with less info will be marked as not displayed
 			 */
-			log.debug "Lock attribute report received: ${responseMap.value}. Delaying event."
+			if (settings?.logEnable) log.debug "${device.displayName} Lock attribute report received: ${responseMap.value}. Delaying event."
 			runIn(1, "delayLockEvent", [overwrite: true, forceForLocallyExecuting: true, data: [map: responseMap]])
 			return [:]
 		}
@@ -226,7 +228,7 @@ private def parseAttributeResponse(String description) {
 }
 
 def delayLockEvent(data) {
-	log.debug "Sending cached lock operation: ${data.map}"
+	if (settings?.logEnable) log.debug "${device.displayName} Sending cached lock operation: ${data.map}"
 	sendEvent(data.map)
 }
 
@@ -238,7 +240,7 @@ private def parseIasMessage(String description) {
 
 private def parseCommandResponse(String description) {
 	Map descMap = zigbee.parseDescriptionAsMap(description)
-	log.debug "Executing parseCommandResponse() with description map:- $descMap"
+	if (settings?.logEnable) log.debug "${device.displayName} Executing parseCommandResponse() with description map:- $descMap"
 
 	def deviceName = device.displayName
 	def result = []
@@ -253,7 +255,8 @@ private def parseCommandResponse(String description) {
 		cmdList << "delay 4200"
 		cmdList << zigbee.readAttribute(CLUSTER_DOORLOCK, DOORLOCK_ATTR_LOCKSTATE).first()
 		result << response(cmdList)
-	} else if (clusterInt == CLUSTER_DOORLOCK && cmd == DOORLOCK_RESPONSE_OPERATION_EVENT) {
+	} 
+    else if (clusterInt == CLUSTER_DOORLOCK && cmd == DOORLOCK_RESPONSE_OPERATION_EVENT) {
 		def eventSource = Integer.parseInt(data[0], 16)
 		def eventCode = Integer.parseInt(data[1], 16)
 
@@ -299,6 +302,6 @@ private Boolean secondsPast(timestamp, seconds) {
 	return (now() - timestamp) > (seconds * 1000)
 }
 
-private boolean isSiHASLock() {
-	device.getDataValue("model") == "DLM-300Z"
+private boolean isSiHASLock() { return true
+	//device.getDataValue("model") == "DLM-300Z"
 }
