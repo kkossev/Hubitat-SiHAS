@@ -1,7 +1,7 @@
 /*
  *  Copyright 2022 SmartThings
  *
- *  Ported for Hubitat Elevation platform by kkossev 2022/10/29 8:54 AM ver. 2.0.0
+ *  Ported for Hubitat Elevation platform by kkossev
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not
  *  use this file except in compliance with the License. You may obtain a copy
@@ -14,6 +14,10 @@
  *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
  *  License for the specific language governing permissions and limitations
  *  under the License.
+ *
+ * ver. 2.0.0 2022-10-29 kkossev  - first version for HE platform
+ * ver. 2.0.1 2022-11-12 kkossev  - 6:21PM analog input binding and configuration reprting OK!
+ *
  */
 import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubMultiAction
@@ -375,13 +379,50 @@ def refresh() {
     sendZigbeeCommands( refreshCmds )
 }
 
+
+private String swapEndianHex(String hex) {
+    reverseArray(hex.decodeHex()).encodeHex()
+}
+
+private byte[] reverseArray(byte[] array) {
+    int i = 0;
+    int j = array.length - 1;
+    byte tmp;
+    while (j > i) {
+        tmp = array[j];
+        array[j] = array[i];
+        array[i] = tmp;
+        j--;
+        i++;
+    }
+    return array
+}
+
+private List readDeviceBindingTable() {
+   ["he raw 0x${device.deviceNetworkId} 0 0 0x0033 {00 00} {0x0000}", "delay 200",]
+}
+
+
 def configure() {
+    def zigbeeEuiReversed = swapEndianHex(device.hub.zigbeeEui)
+    def zigbeeIdReversed  = swapEndianHex(device.zigbeeId)
+    log.trace "device.hub.zigbeeEuiReversed = $zigbeeEuiReversed   device.zigbeeIdReversed=${device.zigbeeId}  device.deviceNetworkId=${device.deviceNetworkId}"
     ArrayList<String> configCmds = []
-	configCmds += zigbee.configureReporting(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, DataType.UINT8, 30, 21600, 0x01/*100mv*1*/, [:], 250)
-	configCmds += zigbee.configureReporting(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, DataType.FLOAT4, 1, 600, 1, [:], 250)
-	//return configCmds + refresh()
+    // ZDO: Binding Table Request (Cluster ID: 0x0033)
+    //configCmds += readDeviceBindingTable()
+    
+	configCmds += zigbee.configureReporting(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, DataType.UINT8, 30, 21600, 0x01, [:], 250)    // 100mV
+    //configCmds += zigbee.configureReporting(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, 0x39/* DataType.FLOAT4*/, (int)1, 600, 1, [:], 250)
+    configCmds += ["he raw 0x${device.deviceNetworkId} 0 0 0x0021 {00 $zigbeeIdReversed 01 0c 00 03 $zigbeeEuiReversed 01} {0x0000}", "delay 200",]            // bind request - OK, except the Frame Control Field which is always 0x40 in HE ( Acknowledgement Reques: true )
+    configCmds += ["he cr 0x${device.deviceNetworkId} 0x01 0x000c 0x0055 0x39 0x0000 0x0258 {0ad7233c}", "delay 200",]                                         // {0ad7233c} = Float: 0.01 
+    
+ 
+	//configCmds += refresh()
+    
     sendZigbeeCommands( configCmds )
+    /*
 	refresh()
+*/
 }
 
 def installed() {
