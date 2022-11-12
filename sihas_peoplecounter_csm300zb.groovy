@@ -16,9 +16,14 @@
  *  under the License.
  *
  * ver. 2.0.0 2022-10-29 kkossev  - first version for HE platform
- * ver. 2.0.1 2022-11-12 kkossev  - 6:21PM analog input binding and configuration reprting OK!
+ * ver. 2.0.1 2022-11-12 kkossev  - analog input binding and configuration reprting OK!
+ * ver. 2.0.2 2022-11-12 kkossev  - preferences bug fixes
  *
  */
+
+def version() { "2.0.2" }
+def timeStamp() {"2022/11/12 9:57 PM"}
+
 import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubMultiAction
 
@@ -118,12 +123,12 @@ metadata {
             input (title: "Setting Description", description: "The settings below correspond to the V2 (TOF) version.", type: "paragraph", element: "paragraph")        
 			input ("ledStatus", "bool", title: "LED status indication", description: "Sets whether the operational status is indicated by LED.", defaultValue: "true", required: false)
 			input ("transationInterval", "enum", title: "Set transaction interval", description: "Sets the transaction interval. If you frequently enter consecutively, you can set the transaction interval to be short and long in the opposite case.", 
-					displayDuringSetup: false, options: [0: "No delay", 1: "0.2 seconds", 2: "0.4 seconds(default)", 3: "0.6 seconds", 4: "0.8 seconds", 5: "1.0 seconds"], defaultValue: "2", required: false)
-			input ("inFastStatus", "bool", title: "Set up quick action when entering", description: "When the counter is zero and enters, you can decide whether to set counter 1 quickly before one transaction ends.", defaultValue: "true", required: false)
-			input ("outFastStatus", "bool", title: "Set up quick action when out", description: "When the counter is 1 and leaves, you can decide whether to set the counter to 0 quickly before one transaction ends.", defaultValue: "true", required: false)
-			input ("rfStatus", "bool", title: "RF Communication Operation", description: "Set RF communication operation for interworking with SiHAS switch.", defaultValue: "false", required: false)
-			input ("rfPairing", "bool", title: "RF Pairing", description: "Start RF pairing with the SiHAS switch. (RF communication operation must be enabled first.)", defaultValue: "false", required: false)
-			input ("distanceInit", "bool", title: "Distance readjustment", description: "If the installation location changes, the distance must be readjusted. Start distance re-adjustment setting and operate for 5 seconds.", defaultValue: "false", required: false)
+					options: [0: "No delay", 1: "0.2 seconds", 2: "0.4 seconds(default)", 3: "0.6 seconds", 4: "0.8 seconds", 5: "1.0 seconds"], defaultValue: "2", required: false)
+			input ("inFastStatus", "bool", title: "Set up quick action when entering", description: "When the counter is zero and enters, you can decide whether to set counter 1 quickly before one transaction ends.", defaultValue: true, required: false)
+			input ("outFastStatus", "bool", title: "Set up quick action when out", description: "When the counter is 1 and leaves, you can decide whether to set the counter to 0 quickly before one transaction ends.", defaultValue: true, required: false)
+			input ("rfStatus", "bool", title: "RF Communication Operation", description: "Set RF communication operation for interworking with SiHAS switch.", defaultValue: false, required: false)
+			input ("rfPairing", "bool", title: "RF Pairing", description: "Start RF pairing with the SiHAS switch. (RF communication operation must be enabled first.)", defaultValue: false, required: false)
+			input ("distanceInit", "bool", title: "Distance readjustment", description: "If the installation location changes, the distance must be readjusted. Start distance re-adjustment setting and operate for 5 seconds.", defaultValue: false, required: false)
 		}
 	}
 }
@@ -145,7 +150,7 @@ private List<Map> collectAttributes(Map descMap) {
 
 def parse(String description) {
     if (settings?.logEnable) {log.debug "${device.displayName} Parsing message from device: $description"}
-
+    checkDriverVersion()
 	Map map = zigbee.getEvent(description)
 	if (settings?.logEnable) {log.trace "${device.displayName} Map =  $map"}
 	if (!map) {
@@ -229,7 +234,8 @@ private Map getAnalogInputResult(value) {
 			descriptionText: descriptionText1,
 			translatable   : true
 		]
-	} else { // freeze on
+	} 
+    else { // freeze on
 		String descriptionText1 = "${device.displayName} : $prevCnt"
 		pc = prevCnt.toInteger()
 		return [
@@ -277,8 +283,16 @@ def ping() {
 }
 
 def updated() {
+    log.info "updated()..."
     ArrayList<String> cmds = []
-	def application = getDataValue("application")
+    def application
+    try {
+        application = getDataValue("application")
+        log.trace "app = $application"
+    }
+    catch (e) {
+        application = "99"
+    }
 	int version = 99
     if (application != null) {
         version = zigbee.convertHexToInt(application)
@@ -289,10 +303,12 @@ def updated() {
 	
 	if (version > 10) { // version > 10 and People Count > 80 and People Count < 100 : TOF Setting Value
 		
-		def ledStatusRet = (ledStatus != null) ? ledStatus : "true"
-		if (ledStatusRet != device.latestValue("ledStatus")) {
-			sendEvent(name: "ledStatus", value: ledStatusRet, descriptionText: "ledStatus set to ${ledStatusRet}")
-			if ( ledStatusRet == "true") {
+		def ledStatusRet = (settings?.ledStatus != null) ? settings?.ledStatus : true
+		if (ledStatusRet != device.currentValue("ledStatus")) {
+            def descriptionText = "ledStatus set to ${ledStatusRet}"
+			sendEvent(name: "ledStatus", value: ledStatusRet, descriptionText: descriptionText)
+            log.info "${device.displayName} ${descriptionText}"
+			if ( ledStatusRet == true) {
 				cmds += setPeopleCounter(86)
 			} else {
 				cmds += setPeopleCounter(87)
@@ -315,44 +331,44 @@ def updated() {
 				cmds += setPeopleCounter(95)
 			}			
 		}
-		def inFastStatusRet = (inFastStatus != null) ? inFastStatus : "true"
+		def inFastStatusRet = (inFastStatus != null) ? inFastStatus : true
 		if (inFastStatusRet != device.latestValue("inFastStatus")) {
 			sendEvent(name: "inFastStatus", value: inFastStatusRet, descriptionText: "inFastStatus set to ${inFastStatusRet}")
-			if ( inFastStatusRet == "true") {
+			if ( inFastStatusRet == true) {
 				cmds += setPeopleCounter(96)
 			} else {
 				cmds += setPeopleCounter(97)
 			}
 		}
-		def outFastStatusRet = (outFastStatus != null) ? outFastStatus : "true"
+		def outFastStatusRet = (outFastStatus != null) ? outFastStatus : true
 		if (outFastStatusRet != device.latestValue("outFastStatus")) {
 			sendEvent(name: "outFastStatus", value: outFastStatusRet, descriptionText: "outFastStatus set to ${outFastStatusRet}")
-			if ( outFastStatusRet == "true") {
+			if ( outFastStatusRet == true) {
 				cmds += setPeopleCounter(98)
 			} else {
 				cmds += setPeopleCounter(99)
 			}
 		}
-		def rfStatusRet = (rfStatus != null) ? rfStatus : "false"
+		def rfStatusRet = (rfStatus != null) ? rfStatus : false
 		if (rfStatusRet != device.latestValue("rfStatus")) {
 			sendEvent(name: "rfStatus", value: rfStatusRet, descriptionText: "rfStatus set to ${rfStatusRet}")
-			if ( rfStatusRet == "true") {
+			if ( rfStatusRet == true) {
 				cmds += setPeopleCounter(88)
 			} else {
 				cmds += setPeopleCounter(89)
 			}
 		}
-		def rfPairingRet = (rfPairing != null) ? rfPairing : "false"
+		def rfPairingRet = (rfPairing != null) ? rfPairing : false
 		if (rfPairingRet != device.latestValue("rfPairing")) {
 			sendEvent(name: "rfPairing", value: rfPairingRet, descriptionText: "rfPairing set to ${rfPairingRet}")
-			if ( rfPairingRet == "true") {
+			if ( rfPairingRet == true) {
 				cmds += setPeopleCounter(81)
 			}
 		}
-		def distanceInitRet = (distanceInit != null) ? distanceInit : "false"
+		def distanceInitRet = (distanceInit != null) ? distanceInit : false
 		if (distanceInitRet != device.latestValue("distanceInit")) {
 			sendEvent(name: "distanceInit", value: distanceInitRet, descriptionText: "distanceInit set to ${distanceInitRet}")
-			if ( distanceInitRet == "true") {
+			if ( distanceInitRet == true) {
 				cmds += setPeopleCounter(83)
 			}
 		}
@@ -409,10 +425,10 @@ def configure() {
     log.trace "device.hub.zigbeeEuiReversed = $zigbeeEuiReversed   device.zigbeeIdReversed=${device.zigbeeId}  device.deviceNetworkId=${device.deviceNetworkId}"
     ArrayList<String> configCmds = []
     // ZDO: Binding Table Request (Cluster ID: 0x0033)
-    //configCmds += readDeviceBindingTable()
+    configCmds += readDeviceBindingTable()
     
 	configCmds += zigbee.configureReporting(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, DataType.UINT8, 30, 21600, 0x01, [:], 250)    // 100mV
-    //configCmds += zigbee.configureReporting(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, 0x39/* DataType.FLOAT4*/, (int)1, 600, 1, [:], 250)
+//    configCmds += zigbee.configureReporting(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, DataType.FLOAT4/* 0x39*/, 1, 600, 1, [:], 250)
     configCmds += ["he raw 0x${device.deviceNetworkId} 0 0 0x0021 {00 $zigbeeIdReversed 01 0c 00 03 $zigbeeEuiReversed 01} {0x0000}", "delay 200",]            // bind request - OK, except the Frame Control Field which is always 0x40 in HE ( Acknowledgement Reques: true )
     configCmds += ["he cr 0x${device.deviceNetworkId} 0x01 0x000c 0x0055 0x39 0x0000 0x0258 {0ad7233c}", "delay 200",]                                         // {0ad7233c} = Float: 0.01 
     
@@ -424,6 +440,17 @@ def configure() {
 	refresh()
 */
 }
+
+def driverVersionAndTimeStamp() {version()+' '+timeStamp()}
+
+def checkDriverVersion() {
+    if (state.driverVersion == null || driverVersionAndTimeStamp() != state.driverVersion) {
+        if (txtEnable==true) log.info "${device.displayName} updating the settings from driver version ${state.driverVersion} to ${driverVersionAndTimeStamp()}"
+        //initializeVars( fullInit = false ) 
+        state.driverVersion = driverVersionAndTimeStamp()
+    }
+}
+
 
 def installed() {
 	if (settings?.txtEnable) log.info "${device.displayName} installed"
