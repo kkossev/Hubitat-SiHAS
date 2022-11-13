@@ -17,12 +17,12 @@
  *
  * ver. 2.0.0 2022-10-29 kkossev  - first version for HE platform
  * ver. 2.0.1 2022-11-12 kkossev  - analog input binding and configuration reprting OK!
- * ver. 2.0.2 2022-11-13 kkossev  - preferences bug fixes; added freeze off/on command
+ * ver. 2.0.2 2022-11-13 kkossev  - preferences bug fixes; added freeze off/on command; added setCounter command
  *
  */
 
 def version() { "2.0.2" }
-def timeStamp() {"2022/11/13 11:07 AM"}
+def timeStamp() {"2022/11/13 6:23 PM"}
 
 import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubMultiAction
@@ -50,6 +50,7 @@ metadata {
         
         command "push", [[name: "Reset people counter to 0 from HE dashboard 'momentary' button tile."]]
         command "freeze",  [[name: "Freeze", type: "ENUM", constraints: ["off", "on"], description: "Select Freeze off/on"] ]
+        command "setCounter", [[name:"setCounter", type: "STRING", description: "Set People Counter, range 0..85", constraints: ["STRING"]]]
         
         
 		//////////////////////////////////////////////////////////////
@@ -290,6 +291,17 @@ def freeze( state ) {
 def push() {
 	setPeopleCounter(0)
 }
+
+def setCounter( number ) {
+    int people = safeToInt( number, -1 ) 
+    if (people >= 0 && people <= 80) {
+        log.debug "setting peopleCounter to ${people}"
+        setPeopleCounter( people )
+    }
+    else {
+        log.warn "please enter a number between 0 and 80"
+    }
+}
 /**
  * PING is used by Device-Watch in attempt to reach the Device
  * */
@@ -464,6 +476,14 @@ def checkDriverVersion() {
         //initializeVars( fullInit = false ) 
         state.driverVersion = driverVersionAndTimeStamp()
     }
+}
+
+Integer safeToInt(val, Integer defaultVal=0) {
+	return "${val}"?.isInteger() ? "${val}".toInteger() : defaultVal
+}
+
+Double safeToDouble(val, Double defaultVal=0.0) {
+	return "${val}"?.isDouble() ? "${val}".toDouble() : defaultVal
 }
 
 
