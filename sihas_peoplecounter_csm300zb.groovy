@@ -17,15 +17,19 @@
  *
  * ver. 2.0.0 2022-10-29 kkossev  - first version for HE platform
  * ver. 2.0.1 2022-11-12 kkossev  - analog input binding and configuration reprting OK!
- * ver. 2.0.2 2022-11-13 kkossev  - preferences bug fixes; added freeze off/on command; added setCounter command
+ * ver. 2.0.2 2022-11-13 kkossev  - preferences bug fixes; added freeze off/on command; added setCounter command; info and debug logs cleanup
+ *
  *
  */
 
 def version() { "2.0.2" }
-def timeStamp() {"2022/11/13 6:23 PM"}
+def timeStamp() {"2022/11/13 10:58 PM"}
 
 import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubMultiAction
+import groovy.transform.Field
+
+@Field static final Boolean debug = false
 
 metadata {
 	definition (name: "SiHAS People Counter", namespace: "shinasys", author: "SHINA SYSTEM") {
@@ -52,7 +56,9 @@ metadata {
         command "freeze",  [[name: "Freeze", type: "ENUM", constraints: ["off", "on"], description: "Select Freeze off/on"] ]
         command "setCounter", [[name:"setCounter", type: "STRING", description: "Set People Counter, range 0..85", constraints: ["STRING"]]]
         
-        
+        if (debug == true) {
+            command "test", [[name:"test", type: "STRING", description: "test", constraints: ["STRING"]]]
+        }
 		//////////////////////////////////////////////////////////////
         // People Counter version description
         //////////////////////////////////////////////////////////////
@@ -153,10 +159,9 @@ private List<Map> collectAttributes(Map descMap) {
 }
 
 def parse(String description) {
-    if (settings?.logEnable) {log.debug "${device.displayName} Parsing message from device: $description"}
+    //logDebug "Parsing message from device: $description"
     checkDriverVersion()
 	Map map = zigbee.getEvent(description)
-	if (settings?.logEnable) {log.trace "${device.displayName} Map =  $map"}
 	if (!map) {
 		if (description?.startsWith('read attr')) {
 			Map descMap = zigbee.parseDescriptionAsMap(description)
@@ -166,20 +171,37 @@ def parse(String description) {
 				if (battMap) {
 					map = getBatteryResult(Integer.parseInt(battMap.value, 16))
 				}
-			} else if (descMap?.clusterInt == ANALOG_INPUT_BASIC_CLUSTER && descMap.attrInt == ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE && descMap?.value) {
+			} 
+            else if (descMap?.clusterInt == ANALOG_INPUT_BASIC_CLUSTER && descMap.attrInt == ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE && descMap?.value) {
 				map = getAnalogInputResult(Integer.parseInt(descMap.value,16))
+                if (map.name == 'peopleCounter') {
+                    logInfo map.descriptionText
+                }
 			}
+            else {
+                logDebug "not processed descMap=${descMap}"
+            }
 		}
+        else {
+            //logDebug "not processed description=${description}"
+            logDebug "not processed descMap=${zigbee.parseDescriptionAsMap(description)}"
+        }
 	}
+    else {
+        logDebug "decoded event Map =  ${map}"
+        if (map.name == 'batteryVoltage') {
+       		map.descriptionText = "batteryVoltage was ${map.value} V"
+            logInfo map.descriptionText
+        }
+    }
 
 	def result = map ? createEvent(map) : [:]
-
-	log.debug "result: $result"
+    if (result != [:]) logDebug "result: $result"
 	return result
 }
 
 private Map getBatteryResult(rawValue) {
-    if (settings?.logEnable) log.trace "${device.displayName} getBatteryResult rawValue=${rawValue}"
+    logDebug "getBatteryResult rawValue=${rawValue}"
 	def linkText = getLinkText(device)
 	def result = [:]
 	def volts = rawValue / 10
@@ -195,12 +217,14 @@ private Map getBatteryResult(rawValue) {
 		if (roundedPct <= 0)
 			roundedPct = 1
 		result.value = Math.min(100, roundedPct)
-		result.descriptionText = "${device.displayName} battery was ${result.value}%"        
+		result.descriptionText = "${device.displayName} battery was ${result.value}%"
+        logInfo result.descriptionText
 	}
 	return result
 }
 
 private Map getAnalogInputResult(value) {
+    logDebug "getAnalogInputResult(${value})"
 	def application = getDataValue("application")
 	int version = zigbee.convertHexToInt(application)
 	Float fpc = Float.intBitsToFloat(value.intValue())
@@ -211,24 +235,33 @@ private Map getAnalogInputResult(value) {
 	int inout = ((int)(fpc*10).round(0))%10; // inout direction : .1 = in, .2 = out, .0 = ready	
 	 
 	if (freezeSts == null) {
-		sendEvent(name: "freeze", value: "off", displayed: true, isStateChange: true)		
+        logWarn "freezeSts was null, setting it to off"
+		sendEvent(name: "freeze", value: "off", displayed: true, type: "digital", isStateChange: true)		
 	}
 	
 	if (freezeSts == null || freezeSts == "off") { // freeze off
 		String inoutString = ( (inout==1) ? "in" : (inout==2) ? "out":"ready")
-		String descriptionText1 = "${device.displayName} : $pc"
-		String descriptionText2 = "${device.displayName} : $inoutString"
+		String descriptionText1 = "peopleCounter : $pc"
+		String descriptionText2 = "inOutDir : $inoutString"
 
-		log.debug "[$fpc] = people: $pc, dir: $inout, $inoutString"
+		logDebug "[$fpc] = people: $pc, dir: $inout, $inoutString"
 
 		String motionActive = pc ? "active" : "inactive"
-		sendEvent(name: "motion", value: motionActive, displayed: true, isStateChange: false)
+        def motionDescriptionText = "motion : ${motionActive}"
+        if (device.currentState('motion')?.value != motionActive) {
+            logInfo motionDescriptionText
+        }
+		sendEvent(name: "motion", value: motionActive, displayed: true, type: "digital", descriptionText: motionDescriptionText /*, isStateChange: false*/)
 
 		if((inoutString != "ready") && (prevInOut == inoutString)) {
-			sendEvent(name: "inOutDir", value: "ready", displayed: true)
+            def readyText = "inOutDir : ready"
+			sendEvent(name: "inOutDir", value: "ready", descriptionText: readyText, type: "digital", displayed: true)
+            logInfo readyText
 		}
 
 		sendEvent(name: "inOutDir", value: inoutString, displayed: true, descriptionText: descriptionText2)
+        logInfo descriptionText2
+        
 		if ( version > 10 && pc > 80 && pc < 100) { // version > 10 and People Count > 80 and People Count < 100 : TOF Setting Value, so ignore
 			pc = prevCnt.toInteger()
 		}		
@@ -253,7 +286,7 @@ private Map getAnalogInputResult(value) {
 
 def setPeopleCounter(peoplecounter) {
 	int pc =  Float.floatToIntBits(peoplecounter);
-	log.debug "SetPeopleCounter = $peoplecounter"
+    logDebug "SetPeopleCounter = $peoplecounter (pc=${pc})"
 	return zigbee.writeAttribute(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, DataType.FLOAT4, pc, [:], 250)
 }
 
@@ -263,7 +296,7 @@ def setFreeze(freezeSts) {
     
     def descriptionText = "freeze set to ${freezeSts}"
 	sendEvent(name: "freeze", value: freezeSts, displayed: true, descriptionText: descriptionText, isStateChange: true)
-    log.info "${device.displayName} ${descriptionText}"    
+    logInfo "${descriptionText}"    
     
 	if( freezeSts == "on") {
 		if ( version > 10 ) {
@@ -284,7 +317,7 @@ def freeze( state ) {
         setFreeze( state )
     }
     else {
-        log.warn "unsupported freeze state ${state}"
+        logWarn "unsupported freeze state ${state}"
     }
 }
 
@@ -295,11 +328,11 @@ def push() {
 def setCounter( number ) {
     int people = safeToInt( number, -1 ) 
     if (people >= 0 && people <= 80) {
-        log.debug "setting peopleCounter to ${people}"
+        logDebug "setting peopleCounter to ${people}"
         setPeopleCounter( people )
     }
     else {
-        log.warn "please enter a number between 0 and 80"
+        logWarn "please enter a number between 0 and 80"
     }
 }
 /**
@@ -310,31 +343,31 @@ def ping() {
 }
 
 def updated() {
-    log.info "updated()..."
+    logInfo "updated()..."
     ArrayList<String> cmds = []
     def application
+	int version
     try {
         application = getDataValue("application")
-        log.trace "app = $application"
+        logTrace "app = $application"
     }
     catch (e) {
         application = "99"
     }
-	int version = 99
     if (application != null) {
         version = zigbee.convertHexToInt(application)
     }
     else {
-        log.warn "${device.displayName} application version not found! Assuming new SiHAS People Counter ..."
+        logWarn "application version not found! Assuming new SiHAS People Counter ..."
+        version = 99
     }
 	
 	if (version > 10) { // version > 10 and People Count > 80 and People Count < 100 : TOF Setting Value
-		
 		def ledStatusRet = (settings?.ledStatus != null) ? settings?.ledStatus : true
 		if (ledStatusRet != device.currentValue("ledStatus")) {
             def descriptionText = "ledStatus set to ${ledStatusRet}"
 			sendEvent(name: "ledStatus", value: ledStatusRet, descriptionText: descriptionText)
-            log.info "${device.displayName} ${descriptionText}"
+            logInfo "${descriptionText}"
 			if ( ledStatusRet == true) {
 				cmds += setPeopleCounter(86)
 			} else {
@@ -343,7 +376,9 @@ def updated() {
 		}
 		def transationIntervalRet = (transationInterval != null) ? transationInterval : "2"		
 		if (transationIntervalRet != device.latestValue("transationInterval")) {
-			sendEvent(name: "transationInterval", value: transationIntervalRet, descriptionText: "transationInterval set to ${transationIntervalRet}")
+            def descriptionText = "transationInterval set to ${transationIntervalRet}"
+			sendEvent(name: "transationInterval", value: transationIntervalRet, descriptionText: descriptionText)
+            logInfo "${descriptionText}"
 			if ( transationIntervalRet == "0") {
 				cmds += setPeopleCounter(90)
 			} else if ( transationIntervalRet == "1") {
@@ -360,7 +395,9 @@ def updated() {
 		}
 		def inFastStatusRet = (inFastStatus != null) ? inFastStatus : true
 		if (inFastStatusRet != device.latestValue("inFastStatus")) {
-			sendEvent(name: "inFastStatus", value: inFastStatusRet, descriptionText: "inFastStatus set to ${inFastStatusRet}")
+            def descriptionText = "inFastStatus set to ${inFastStatusRet}"
+			sendEvent(name: "inFastStatus", value: inFastStatusRet, descriptionText: descriptionText)
+            logInfo "${descriptionText}"
 			if ( inFastStatusRet == true) {
 				cmds += setPeopleCounter(96)
 			} else {
@@ -369,7 +406,9 @@ def updated() {
 		}
 		def outFastStatusRet = (outFastStatus != null) ? outFastStatus : true
 		if (outFastStatusRet != device.latestValue("outFastStatus")) {
-			sendEvent(name: "outFastStatus", value: outFastStatusRet, descriptionText: "outFastStatus set to ${outFastStatusRet}")
+            def descriptionText = "outFastStatus set to ${outFastStatusRet}"
+			sendEvent(name: "outFastStatus", value: outFastStatusRet, descriptionText: descriptionText)
+            logInfo "${descriptionText}"
 			if ( outFastStatusRet == true) {
 				cmds += setPeopleCounter(98)
 			} else {
@@ -378,7 +417,9 @@ def updated() {
 		}
 		def rfStatusRet = (rfStatus != null) ? rfStatus : false
 		if (rfStatusRet != device.latestValue("rfStatus")) {
-			sendEvent(name: "rfStatus", value: rfStatusRet, descriptionText: "rfStatus set to ${rfStatusRet}")
+            def descriptionText = "rfStatus set to ${rfStatusRet}"
+			sendEvent(name: "rfStatus", value: rfStatusRet, descriptionText: descriptionText)
+            logInfo "${descriptionText}"
 			if ( rfStatusRet == true) {
 				cmds += setPeopleCounter(88)
 			} else {
@@ -387,14 +428,18 @@ def updated() {
 		}
 		def rfPairingRet = (rfPairing != null) ? rfPairing : false
 		if (rfPairingRet != device.latestValue("rfPairing")) {
-			sendEvent(name: "rfPairing", value: rfPairingRet, descriptionText: "rfPairing set to ${rfPairingRet}")
+            def descriptionText = "rfPairing set to ${rfPairingRet}"
+			sendEvent(name: "rfPairing", value: rfPairingRet, descriptionText: descriptionText)
+            logInfo "${descriptionText}"
 			if ( rfPairingRet == true) {
 				cmds += setPeopleCounter(81)
 			}
 		}
 		def distanceInitRet = (distanceInit != null) ? distanceInit : false
 		if (distanceInitRet != device.latestValue("distanceInit")) {
-			sendEvent(name: "distanceInit", value: distanceInitRet, descriptionText: "distanceInit set to ${distanceInitRet}")
+            def descriptionText = "distanceInit set to ${distanceInitRet}"
+			sendEvent(name: "distanceInit", value: distanceInitRet, descriptionText: descriptionText)
+            logInfo "${descriptionText}"
 			if ( distanceInitRet == true) {
 				cmds += setPeopleCounter(83)
 			}
@@ -405,7 +450,7 @@ def updated() {
 }
 
 void sendZigbeeCommands(ArrayList<String> cmds) {
-    if (logEnable) {log.trace "${device.displayName} sendZigbeeCommands(cmds=$cmds)"}
+    logDebug "sendZigbeeCommands(cmds=$cmds)"
     hubitat.device.HubMultiAction allActions = new hubitat.device.HubMultiAction()
     cmds.each {
             allActions.add(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE))
@@ -415,6 +460,7 @@ void sendZigbeeCommands(ArrayList<String> cmds) {
 
 
 def refresh() {
+    logDebug "refresh()..."
     ArrayList<String> refreshCmds = []
 	refreshCmds += zigbee.readAttribute(zigbee.POWER_CONFIGURATION_CLUSTER, POWER_CONFIGURATION_BATTERY_VOLTAGE_ATTRIBUTE, [:], 250)
 	refreshCmds += zigbee.readAttribute(ANALOG_INPUT_BASIC_CLUSTER, ANALOG_INPUT_BASIC_PRESENT_VALUE_ATTRIBUTE, [:], 250)	
@@ -447,9 +493,10 @@ private List readDeviceBindingTable() {
 
 
 def configure() {
+    logDebug "configure()..."
     def zigbeeEuiReversed = swapEndianHex(device.hub.zigbeeEui)
     def zigbeeIdReversed  = swapEndianHex(device.zigbeeId)
-    log.trace "device.hub.zigbeeEuiReversed = $zigbeeEuiReversed   device.zigbeeIdReversed=${device.zigbeeId}  device.deviceNetworkId=${device.deviceNetworkId}"
+    //log.trace "device.hub.zigbeeEuiReversed = $zigbeeEuiReversed   device.zigbeeIdReversed=${device.zigbeeId}  device.deviceNetworkId=${device.deviceNetworkId}"
     ArrayList<String> configCmds = []
     // ZDO: Binding Table Request (Cluster ID: 0x0033)
     configCmds += readDeviceBindingTable()
@@ -463,16 +510,15 @@ def configure() {
 	//configCmds += refresh()
     
     sendZigbeeCommands( configCmds )
-    /*
+    
 	refresh()
-*/
 }
 
 def driverVersionAndTimeStamp() {version()+' '+timeStamp()}
 
 def checkDriverVersion() {
     if (state.driverVersion == null || driverVersionAndTimeStamp() != state.driverVersion) {
-        if (txtEnable==true) log.info "${device.displayName} updating the settings from driver version ${state.driverVersion} to ${driverVersionAndTimeStamp()}"
+        logInfo "${device.displayName} updating the settings from driver version ${state.driverVersion} to ${driverVersionAndTimeStamp()}"
         //initializeVars( fullInit = false ) 
         state.driverVersion = driverVersionAndTimeStamp()
     }
@@ -486,9 +532,25 @@ Double safeToDouble(val, Double defaultVal=0.0) {
 	return "${val}"?.isDouble() ? "${val}".toDouble() : defaultVal
 }
 
+def logDebug(msg) {
+    if (settings?.logEnable) {
+        log.debug "${device.displayName} " + msg
+    }
+}
 
+def logInfo(msg) {
+    if (settings?.txtEnable) {
+        log.info "${device.displayName} " + msg
+    }
+}
+
+def logWarn(msg) {
+    if (settings?.logEnable) {
+        log.warn "${device.displayName} " + msg
+    }
+}
 def installed() {
-	if (settings?.txtEnable) log.info "${device.displayName} installed"
+	logInfo "installed()..."
 	sendEvent(name: "ledStatus", value:"true")
     sendEvent(name: "transationInterval", value:"2")
     sendEvent(name: "inFastStatus", value:"true")
@@ -497,3 +559,8 @@ def installed() {
     sendEvent(name: "rfPairing", value:"false")
     sendEvent(name: "distanceInit", value:"false")
 }
+
+def test( text ) {
+    logDebug "test"
+}
+
