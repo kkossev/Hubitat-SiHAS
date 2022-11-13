@@ -17,12 +17,12 @@
  *
  * ver. 2.0.0 2022-10-29 kkossev  - first version for HE platform
  * ver. 2.0.1 2022-11-12 kkossev  - analog input binding and configuration reprting OK!
- * ver. 2.0.2 2022-11-12 kkossev  - preferences bug fixes
+ * ver. 2.0.2 2022-11-13 kkossev  - preferences bug fixes; added freeze off/on command
  *
  */
 
 def version() { "2.0.2" }
-def timeStamp() {"2022/11/12 9:57 PM"}
+def timeStamp() {"2022/11/13 11:07 AM"}
 
 import hubitat.zigbee.zcl.DataType
 import hubitat.device.HubMultiAction
@@ -48,6 +48,9 @@ metadata {
         attribute "rfPairing",     "enum", ["true", "false"]
         attribute "distanceInit",  "enum", ["true", "false"]
         
+        command "push", [[name: "Reset people counter to 0 from HE dashboard 'momentary' button tile."]]
+        command "freeze",  [[name: "Freeze", type: "ENUM", constraints: ["off", "on"], description: "Select Freeze off/on"] ]
+        
         
 		//////////////////////////////////////////////////////////////
         // People Counter version description
@@ -68,11 +71,11 @@ metadata {
 					displayDuringSetup: false, 
 					type: "paragraph", 
 					element: "paragraph")        
-			input ("ledStatus", "boolean", 
+			input ("ledStatus", "bool", 
 					title: "LED 상태 표시 여부", 
 					description: "동작 상태를 LED로 표시할지 여부를 설정합니다.", 
 					displayDuringSetup: false, 
-					defaultValue: "true", 
+					defaultValue: true, 
 					required: false)
 			input ("transationInterval", "enum",
 					title: "트랜잭션간 간격 설정", 
@@ -86,49 +89,49 @@ metadata {
 							  5: "1.0초"],
 					defaultValue: "2",
 					required: false)
-			input ("inFastStatus", "boolean", 
+			input ("inFastStatus", "bool", 
 					title: "들어갈때 빠른 동작설정", 
 					description: "카운터가 0이고 들어갈때 카운터 1로 설정하는것을 한 트랜잭션이 끝나기 전에 빠르게 설정을 할지 여부를 정할수 있습니다.", 
 					displayDuringSetup: false, 
-					defaultValue: "true", 
+					defaultValue: true, 
 					required: false)
-			input ("outFastStatus", "boolean", 
+			input ("outFastStatus", "bool", 
 					title: "나갈때 빠른 동작설정", 
 					description: "카운터가 1이고 나갈때 카운터를 0으로 설정하는것을 한 트랜잭션이 끝나기 전에 빠르게 설정을 할지 여부를 정할수 있습니다.", 
 					displayDuringSetup: false, 
-					defaultValue: "true", 
+					defaultValue: true, 
 					required: false)
-			input ("rfStatus", "boolean", 
+			input ("rfStatus", "bool", 
 					title: "RF 통신 동작", 
 					description: "시하스 스위치와 연동을 위해서 RF 통신 동작 여부를 설정합니다.", 
 					displayDuringSetup: false, 
-					defaultValue: "false", 
+					defaultValue: false, 
 					required: false)
-			input ("rfPairing", "boolean", 
+			input ("rfPairing", "bool", 
 					title: "RF 페어링", 
 					description: "시하스 스위치와 RF 페어링을 시작합니다. (먼저 RF통신 동작이 활성화되어야 합니다.)", 
 					displayDuringSetup: false, 
-					defaultValue: "false", 
+					defaultValue: false, 
 					required: false)
-			input ("distanceInit", "boolean", 
+			input ("distanceInit", "bool", 
 					title: "거리 재 조정", 
 					description: "설치 위치가 바뀌면 거리 재조정을 진행해야합니다. 거리 재 조정 설정을 시작합니다. 5초동안 동작합니다.)", 
 					displayDuringSetup: false, 
-					defaultValue: "false", 
+					defaultValue: false, 
 					required: false)
 			*/
             // english version
             input (name: "logEnable", type: "bool", title: "Debug logging", description: "<i>Debug information, useful for troubleshooting. Recommended value is <b>false</b></i>", defaultValue: true)
             input (name: "txtEnable", type: "bool", title: "Description text logging", description: "<i>Display sensor states in HE log page. Recommended value is <b>true</b></i>", defaultValue: true)
-            input (title: "Setting Description", description: "The settings below correspond to the V2 (TOF) version.", type: "paragraph", element: "paragraph")        
-			input ("ledStatus", "bool", title: "LED status indication", description: "Sets whether the operational status is indicated by LED.", defaultValue: "true", required: false)
-			input ("transationInterval", "enum", title: "Set transaction interval", description: "Sets the transaction interval. If you frequently enter consecutively, you can set the transaction interval to be short and long in the opposite case.", 
+            input (title: "Setting Description", description: "<b>The settings below correspond to the V2 (TOF) version.</b>", type: "paragraph", element: "paragraph")        
+			input ("ledStatus", "bool", title: "LED status indication", description: "<i>Sets whether the operational status is indicated by LED.</i>", defaultValue: true, required: false)
+			input ("transationInterval", "enum", title: "Set transaction interval", description: "<i>Sets the transaction interval. If you frequently enter consecutively, you can set the transaction interval to be short and long in the opposite case.</i>", 
 					options: [0: "No delay", 1: "0.2 seconds", 2: "0.4 seconds(default)", 3: "0.6 seconds", 4: "0.8 seconds", 5: "1.0 seconds"], defaultValue: "2", required: false)
-			input ("inFastStatus", "bool", title: "Set up quick action when entering", description: "When the counter is zero and enters, you can decide whether to set counter 1 quickly before one transaction ends.", defaultValue: true, required: false)
-			input ("outFastStatus", "bool", title: "Set up quick action when out", description: "When the counter is 1 and leaves, you can decide whether to set the counter to 0 quickly before one transaction ends.", defaultValue: true, required: false)
-			input ("rfStatus", "bool", title: "RF Communication Operation", description: "Set RF communication operation for interworking with SiHAS switch.", defaultValue: false, required: false)
-			input ("rfPairing", "bool", title: "RF Pairing", description: "Start RF pairing with the SiHAS switch. (RF communication operation must be enabled first.)", defaultValue: false, required: false)
-			input ("distanceInit", "bool", title: "Distance readjustment", description: "If the installation location changes, the distance must be readjusted. Start distance re-adjustment setting and operate for 5 seconds.", defaultValue: false, required: false)
+			input ("inFastStatus", "bool", title: "Set up quick action when entering", description: "<i>When the counter is zero and enters, you can decide whether to set counter 1 quickly before one transaction ends.</i>", defaultValue: true, required: false)
+			input ("outFastStatus", "bool", title: "Set up quick action when out", description: "<i>When the counter is 1 and leaves, you can decide whether to set the counter to 0 quickly before one transaction ends.</i>", defaultValue: true, required: false)
+			input ("rfStatus", "bool", title: "RF Communication Operation", description: "<i>Set RF communication operation for interworking with SiHAS switch.</i>", defaultValue: false, required: false)
+			input ("rfPairing", "bool", title: "RF Pairing", description: "<i>Start RF pairing with the SiHAS switch. (RF communication operation must be enabled first.)</i>", defaultValue: false, required: false)
+			input ("distanceInit", "bool", title: "Distance readjustment", description: "<i>If the installation location changes, the distance must be readjusted. Start distance re-adjustment setting and operate for 5 seconds.</i>", defaultValue: false, required: false)
 		}
 	}
 }
@@ -257,7 +260,10 @@ def setFreeze(freezeSts) {
 	def application = getDataValue("application")
 	int version = zigbee.convertHexToInt(application)
     
-	sendEvent(name: "freeze", value: freezeSts, displayed: true, isStateChange: true)
+    def descriptionText = "freeze set to ${freezeSts}"
+	sendEvent(name: "freeze", value: freezeSts, displayed: true, descriptionText: descriptionText, isStateChange: true)
+    log.info "${device.displayName} ${descriptionText}"    
+    
 	if( freezeSts == "on") {
 		if ( version > 10 ) {
 			return setPeopleCounter(82)
@@ -270,6 +276,15 @@ def setFreeze(freezeSts) {
         }
 	}
 	return null
+}
+
+def freeze( state ) {
+    if (state in ["off","on"]) {
+        setFreeze( state )
+    }
+    else {
+        log.warn "unsupported freeze state ${state}"
+    }
 }
 
 def push() {
