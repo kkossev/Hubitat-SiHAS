@@ -1,9 +1,12 @@
 {
   "packageName": "SiHAS People Counter",
   "author": "Krassimir Kossev",
-  "version": "2.0.0",
+  "version": "2.0.2",
   "minimumHEVersion": "2.2.7",
-  "dateReleased": "2022-10-29",
+  "dateReleased": "2022-11-13",
+  "releaseNotes": "2.0.2 2022-11-13 - preferences bug fixes; added freeze off/on command; added setCounter command; info and debug logs cleanup\n2.0.1 2022-11-12 - analog input binding and reporting configuration OK!\n2.0.0 2022-10-29 - first version for HE platform",
+  "documentationLink": "https://github.com/kkossev/Hubitat-SiHAS/blob/main/README.md",
+  "communityLink": "https://github.com/kkossev/Hubitat-SiHAS/blob/main/README.md",  
   "drivers": [
     {
       "id": "d5c3b85e-d198-451c-b4cb-0d5aea6f231b",
